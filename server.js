@@ -1,4 +1,3 @@
-
 const express = require("express");
 
 const crypto = require("crypto");
@@ -9,29 +8,55 @@ const CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET;
 
 const CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
 
+// แสดงทุก request ใน Render Logs
+
+app.use((req, res, next) => {
+
+  console.log(`[HTTP] ${req.method} ${req.originalUrl}`);
+
+  next();
+
+});
+
+// หน้าแรกสำหรับเช็กว่า Server ทำงาน
+
 app.get("/", (req, res) => {
 
   res.status(200).send("Art TTM LINE Bot is running");
 
 });
 
+// เปิดไว้สำหรับตรวจว่า /webhook มีอยู่จริง
+
+app.get("/webhook", (req, res) => {
+
+  res.status(200).send("Art TTM webhook is ready");
+
+});
+
+// LINE Webhook
+
 app.post(
 
   "/webhook",
 
-  express.raw({ type: "application/json" }),
+  express.raw({ type: "*/*" }),
 
   async (req, res) => {
 
     try {
 
-      const rawBody = req.body;
+      const rawBody = Buffer.isBuffer(req.body)
+
+        ? req.body
+
+        : Buffer.from(req.body || "");
 
       const signature = req.get("x-line-signature") || "";
 
       if (!CHANNEL_SECRET) {
 
-        console.error("LINE_CHANNEL_SECRET is missing");
+        console.error("ERROR: LINE_CHANNEL_SECRET is missing");
 
         return res.sendStatus(500);
 
@@ -45,7 +70,7 @@ app.post(
 
         .digest("base64");
 
-      const validSignature =
+      const signatureIsValid =
 
         signature.length === expectedSignature.length &&
 
@@ -57,17 +82,23 @@ app.post(
 
         );
 
-      if (!validSignature) {
+      if (!signatureIsValid) {
 
-        console.error("Invalid LINE signature");
+        console.error("ERROR: Invalid LINE signature");
 
         return res.sendStatus(401);
 
       }
 
-      const body = JSON.parse(rawBody.toString("utf8"));
+      let body = {};
 
-      // ตอบ LINE ทันที เพื่อให้ Webhook Verify ผ่าน
+      if (rawBody.length > 0) {
+
+        body = JSON.parse(rawBody.toString("utf8"));
+
+      }
+
+      // ตอบ LINE 200 ทันที
 
       res.sendStatus(200);
 
@@ -85,11 +116,17 @@ app.post(
 
         ) {
 
-          await replyToLine(
+          await replyMessage(
 
             event.replyToken,
 
-            "อาร์ต TTM รับข้อความแล้วครับ: " + event.message.text
+            `สวัสดีครับ ผม Art TTM 🤖
+
+ระบบ LINE Webhook เชื่อมต่อสำเร็จแล้วครับ
+
+ข้อความที่ได้รับ:
+
+${event.message.text}`
 
           );
 
@@ -99,7 +136,7 @@ app.post(
 
     } catch (error) {
 
-      console.error("Webhook error:", error);
+      console.error("WEBHOOK ERROR:", error);
 
       if (!res.headersSent) {
 
@@ -113,57 +150,73 @@ app.post(
 
 );
 
-async function replyToLine(replyToken, text) {
+async function replyMessage(replyToken, text) {
 
-  if (!CHANNEL_ACCESS_TOKEN) {
+  try {
 
-    console.error("LINE_CHANNEL_ACCESS_TOKEN is missing");
+    if (!CHANNEL_ACCESS_TOKEN) {
 
-    return;
+      console.error("ERROR: LINE_CHANNEL_ACCESS_TOKEN is missing");
 
-  }
-
-  const response = await fetch(
-
-    "https://api.line.me/v2/bot/message/reply",
-
-    {
-
-      method: "POST",
-
-      headers: {
-
-        "Content-Type": "application/json",
-
-        Authorization: `Bearer ${CHANNEL_ACCESS_TOKEN}`,
-
-      },
-
-      body: JSON.stringify({
-
-        replyToken,
-
-        messages: [
-
-          {
-
-            type: "text",
-
-            text,
-
-          },
-
-        ],
-
-      }),
+      return;
 
     }
 
-  );
+    const response = await fetch(
 
-  if (!response.ok) {
+      "https://api.line.me/v2/bot/message/reply",
 
-    console.error("LINE reply error:", await response.text());
+      {
+
+        method: "POST",
+
+        headers: {
+
+          "Content-Type": "application/json",
+
+          Authorization: `Bearer ${CHANNEL_ACCESS_TOKEN}`,
+
+        },
+
+        body: JSON.stringify({
+
+          replyToken,
+
+          messages: [
+
+            {
+
+              type: "text",
+
+              text: text,
+
+            },
+
+          ],
+
+        }),
+
+      }
+
+    );
+
+    if (!response.ok) {
+
+      console.error(
+
+        "LINE REPLY ERROR:",
+
+        response.status,
+
+        await response.text()
+
+      );
+
+    }
+
+  } catch (error) {
+
+    console.error("LINE REPLY EXCEPTION:", error);
 
   }
 
@@ -174,5 +227,7 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, "0.0.0.0", () => {
 
   console.log(`Art TTM server running on port ${PORT}`);
+
+  console.log("Webhook endpoint: /webhook");
 
 });
