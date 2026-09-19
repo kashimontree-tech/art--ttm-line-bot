@@ -1,3 +1,4 @@
+
 const express = require("express");
 
 const crypto = require("crypto");
@@ -24,23 +25,49 @@ app.post(
 
     try {
 
-      const signature = req.headers["x-line-signature"];
+      const rawBody = req.body;
 
-      const expectedSignature = crypto
+      const signature = req.get("x-line-signature") || "";
 
-        .createHmac("SHA256", CHANNEL_SECRET)
+      if (!CHANNEL_SECRET) {
 
-        .update(req.body)
+        console.error("LINE_CHANNEL_SECRET is missing");
 
-        .digest("base64");
-
-      if (!signature || signature !== expectedSignature) {
-
-        return res.status(401).send("Invalid signature");
+        return res.sendStatus(500);
 
       }
 
-      const body = JSON.parse(req.body.toString("utf8"));
+      const expectedSignature = crypto
+
+        .createHmac("sha256", CHANNEL_SECRET)
+
+        .update(rawBody)
+
+        .digest("base64");
+
+      const validSignature =
+
+        signature.length === expectedSignature.length &&
+
+        crypto.timingSafeEqual(
+
+          Buffer.from(signature),
+
+          Buffer.from(expectedSignature)
+
+        );
+
+      if (!validSignature) {
+
+        console.error("Invalid LINE signature");
+
+        return res.sendStatus(401);
+
+      }
+
+      const body = JSON.parse(rawBody.toString("utf8"));
+
+      // ตอบ LINE ทันที เพื่อให้ Webhook Verify ผ่าน
 
       res.sendStatus(200);
 
@@ -52,15 +79,17 @@ app.post(
 
           event.message &&
 
-          event.message.type === "text"
+          event.message.type === "text" &&
+
+          event.replyToken
 
         ) {
 
-          await replyMessage(
+          await replyToLine(
 
             event.replyToken,
 
-            "สวัสดีครับ ผม Art TTM 🤖\nระบบเชื่อมต่อ LINE สำเร็จแล้วครับ"
+            "อาร์ต TTM รับข้อความแล้วครับ: " + event.message.text
 
           );
 
@@ -70,9 +99,13 @@ app.post(
 
     } catch (error) {
 
-      console.error(error);
+      console.error("Webhook error:", error);
 
-      if (!res.headersSent) res.sendStatus(500);
+      if (!res.headersSent) {
+
+        res.sendStatus(500);
+
+      }
 
     }
 
@@ -80,7 +113,15 @@ app.post(
 
 );
 
-async function replyMessage(replyToken, text) {
+async function replyToLine(replyToken, text) {
+
+  if (!CHANNEL_ACCESS_TOKEN) {
+
+    console.error("LINE_CHANNEL_ACCESS_TOKEN is missing");
+
+    return;
+
+  }
 
   const response = await fetch(
 
@@ -100,7 +141,7 @@ async function replyMessage(replyToken, text) {
 
       body: JSON.stringify({
 
-        replyToken: replyToken,
+        replyToken,
 
         messages: [
 
@@ -108,7 +149,7 @@ async function replyMessage(replyToken, text) {
 
             type: "text",
 
-            text: text,
+            text,
 
           },
 
@@ -130,7 +171,7 @@ async function replyMessage(replyToken, text) {
 
 const PORT = process.env.PORT || 3000;
 
-app.listen(PORT, () => {
+app.listen(PORT, "0.0.0.0", () => {
 
   console.log(`Art TTM server running on port ${PORT}`);
 
