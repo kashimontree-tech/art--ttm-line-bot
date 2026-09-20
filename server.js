@@ -12,11 +12,11 @@ const LINE_CHANNEL_ACCESS_TOKEN =
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
-// =========================
+// ==============================
 
 // HEALTH CHECK
 
-// =========================
+// ==============================
 
 app.get("/", (req, res) => {
 
@@ -24,59 +24,81 @@ app.get("/", (req, res) => {
 
 });
 
-// =========================
+app.get("/webhook", (req, res) => {
+
+  res.status(200).send("Art TTM webhook is ready");
+
+});
+
+// ==============================
 
 // LINE WEBHOOK
 
-// =========================
+// ต้องใช้ raw body เพื่อตรวจ LINE signature
+
+// ==============================
 
 app.post(
 
   "/webhook",
 
-  express.raw({ type: "application/json" }),
+  express.raw({ type: "*/*" }),
 
   async (req, res) => {
 
     try {
 
-      // ตรวจสอบ LINE Signature
+      const signature = req.get("x-line-signature") || "";
 
-      const signature = req.headers["x-line-signature"];
+      if (!verifyLineSignature(req.body, signature)) {
 
-      const expectedSignature = crypto
+        console.error("Invalid LINE signature");
 
-        .createHmac("SHA256", LINE_CHANNEL_SECRET)
-
-        .update(req.body)
-
-        .digest("base64");
-
-      if (!signature || signature !== expectedSignature) {
-
-        return res.status(401).send("Invalid signature");
+        return res.sendStatus(401);
 
       }
 
-      const body = JSON.parse(
+      let body;
 
-        req.body.toString("utf8")
+      try {
 
-      );
+        body = JSON.parse(req.body.toString("utf8"));
 
-      // ตอบ LINE ทันทีว่าได้รับ Webhook แล้ว
+      } catch (error) {
+
+        console.error("Invalid JSON:", error);
+
+        return res.sendStatus(400);
+
+      }
+
+      // ตอบ LINE ทันที ป้องกัน webhook timeout
 
       res.sendStatus(200);
 
-      for (const event of body.events || []) {
+      const events = Array.isArray(body.events)
 
-        await handleEvent(event);
+        ? body.events
+
+        : [];
+
+      for (const event of events) {
+
+        try {
+
+          await handleLineEvent(event);
+
+        } catch (error) {
+
+          console.error("EVENT ERROR:", error);
+
+        }
 
       }
 
     } catch (error) {
 
-      console.error("Webhook error:", error);
+      console.error("WEBHOOK ERROR:", error);
 
       if (!res.headersSent) {
 
@@ -90,147 +112,263 @@ app.post(
 
 );
 
-// =========================
+// ==============================
 
-// HANDLE LINE EVENT
+// VERIFY LINE SIGNATURE
 
-// =========================
+// ==============================
 
-async function handleEvent(event) {
+function verifyLineSignature(rawBody, signature) {
+
+  if (!LINE_CHANNEL_SECRET || !signature) {
+
+    return false;
+
+  }
+
+  const expectedSignature = crypto
+
+    .createHmac("sha256", LINE_CHANNEL_SECRET)
+
+    .update(rawBody)
+
+    .digest("base64");
 
   try {
 
-    // เมื่อ Art TTM เข้ากลุ่ม
+    const expected = Buffer.from(expectedSignature);
 
-    if (event.type === "join" && event.replyToken) {
+    const received = Buffer.from(signature);
 
-      const intro =
+    if (expected.length !== received.length) {
 
-        "สวัสดีครับ ผมชื่ออาร์ต 🤖\n" +
-
-        "ผมเป็น Bot ผู้ช่วยพี่เบนซ์ในทุกด้าน " +
-
-        "และจะคอยเก็บข้อมูลการทำงานต่าง ๆ " +
-
-        "เพื่อสรุปและรายงานพี่เบนซ์ทุกวันครับ";
-
-      await replyLINE(
-
-        event.replyToken,
-
-        intro
-
-      );
-
-      return;
+      return false;
 
     }
 
-    // รับเฉพาะข้อความ Text
-
-    if (
-
-      event.type !== "message" ||
-
-      !event.message ||
-
-      event.message.type !== "text" ||
-
-      !event.replyToken
-
-    ) {
-
-      return;
-
-    }
-
-    const userText = event.message.text.trim();
-
-    console.log(
-
-      "LINE message:",
-
-      userText
-
-    );
-
-    // ส่งข้อความเข้า OpenAI
-
-    const aiAnswer =
-
-      await askOpenAI(userText);
-
-    // ส่งคำตอบกลับ LINE
-
-    await replyLINE(
-
-      event.replyToken,
-
-      aiAnswer
-
-    );
+    return crypto.timingSafeEqual(expected, received);
 
   } catch (error) {
 
-    console.error(
+    console.error("SIGNATURE ERROR:", error);
 
-      "Handle event error:",
-
-      error
-
-    );
-
-    if (event.replyToken) {
-
-      try {
-
-        await replyLINE(
-
-          event.replyToken,
-
-          "อาร์ตได้รับข้อความแล้วครับ " +
-
-            "แต่ระบบ AI มีปัญหาชั่วคราว " +
-
-            "กรุณาลองใหม่อีกครั้งครับ"
-
-        );
-
-      } catch (replyError) {
-
-        console.error(
-
-          "Fallback reply error:",
-
-          replyError
-
-        );
-
-      }
-
-    }
+    return false;
 
   }
 
 }
 
-// =========================
+// ==============================
+
+// HANDLE LINE EVENT
+
+// ==============================
+
+async function handleLineEvent(event) {
+
+  if (!event) {
+
+    return;
+
+  }
+
+  // ------------------------------
+
+  // Art TTM ถูกเชิญเข้ากลุ่ม
+
+  // ------------------------------
+
+  if (
+
+    event.type === "join" &&
+
+    event.source &&
+
+    (event.source.type === "group" ||
+
+      event.source.type === "room")
+
+  ) {
+
+    const introduction =
+
+      "สวัสดีครับ ผมชื่อ Art TTM 🤖\n\n" +
+
+      "ผมเป็น Bot ช่วยพี่เบนซ์ทุกด้าน และคอยเก็บข้อมูลรายงานพี่เบนซ์ทุกวันนะครับ";
+
+    if (event.replyToken) {
+
+      await replyLINE(event.replyToken, introduction);
+
+    }
+
+    return;
+
+  }
+
+  // ------------------------------
+
+  // รับเฉพาะข้อความ Text
+
+  // ------------------------------
+
+  if (
+
+    event.type !== "message" ||
+
+    !event.message ||
+
+    event.message.type !== "text"
+
+  ) {
+
+    return;
+
+  }
+
+  const userText = String(event.message.text || "").trim();
+
+  if (!userText || !event.replyToken) {
+
+    return;
+
+  }
+
+  const sourceType =
+
+    event.source && event.source.type
+
+      ? event.source.type
+
+      : "unknown";
+
+  // ------------------------------
+
+  // ในกลุ่ม:
+
+  // ตอบเฉพาะข้อความที่เรียก "อาร์ต"
+
+  // เพื่อไม่ให้ Bot ตอบทุกข้อความ
+
+  // ------------------------------
+
+  if (
+
+    sourceType === "group" ||
+
+    sourceType === "room"
+
+  ) {
+
+    const calledArt =
+
+      /อาร์ต|art\s*ttm|\bart\b/i.test(userText);
+
+    if (!calledArt) {
+
+      return;
+
+    }
+
+  }
+
+  // ------------------------------
+
+  // ส่งข้อความให้ OpenAI
+
+  // ------------------------------
+
+  let answer;
+
+  try {
+
+    answer = await askOpenAI(userText);
+
+  } catch (error) {
+
+    console.error("OPENAI ERROR:", error);
+
+    answer =
+
+      "อาร์ตเชื่อมต่อระบบ AI ไม่สำเร็จชั่วคราวครับพี่เบนซ์ กรุณาลองอีกครั้งครับ";
+
+  }
+
+  await replyLINE(event.replyToken, answer);
+
+}
+
+// ==============================
 
 // OPENAI
 
-// =========================
+// ==============================
 
 async function askOpenAI(userText) {
 
   if (!OPENAI_API_KEY) {
 
-    throw new Error(
-
-      "OPENAI_API_KEY is missing"
-
-    );
+    throw new Error("OPENAI_API_KEY is missing");
 
   }
+
+  const instructions = `
+
+คุณชื่อ "Art TTM" หรือ "อาร์ต"
+
+คุณเป็นผู้ช่วย AI ของพี่เบนซ์ และบริษัท
+
+TTM HOME DESIGN & BUILD-IN CO., LTD.
+
+ให้ตอบเป็นภาษาไทยเป็นหลัก
+
+เรียกผู้ใช้ว่า "พี่เบนซ์" เมื่อเหมาะสม
+
+หน้าที่ของคุณ ได้แก่:
+
+- ช่วยงานก่อสร้าง
+
+- งานตกแต่งภายใน
+
+- งานบิวท์อิน
+
+- BOQ
+
+- ถอดปริมาณ
+
+- คำนวณต้นทุน
+
+- คำนวณกำไร
+
+- เปรียบเทียบราคาวัสดุ
+
+- ข้อมูล Supplier
+
+- งานโครงการ
+
+- งานเอกสาร
+
+- งานบริหาร
+
+- งานทั่วไปที่พี่เบนซ์มอบหมาย
+
+หลักการตอบ:
+
+- ตอบให้ตรงคำถาม
+
+- กระชับแต่ครบ
+
+- ห้ามแต่งข้อมูลที่ไม่มี
+
+- ถ้าไม่ทราบให้บอกว่าไม่ทราบ
+
+- ตัวเลขและการคำนวณต้องระมัดระวัง
+
+- ข้อมูลสำคัญให้สรุปให้อ่านง่าย
+
+- หากเป็นข้อมูลจากสมาชิกในกลุ่ม ให้ช่วยจัดระเบียบข้อมูลเพื่อใช้สรุปรายงานภายหลัง
+
+`;
 
   const response = await fetch(
 
@@ -242,13 +380,9 @@ async function askOpenAI(userText) {
 
       headers: {
 
-        "Content-Type":
+        "Content-Type": "application/json",
 
-          "application/json",
-
-        Authorization:
-
-          `Bearer ${OPENAI_API_KEY}`,
+        Authorization: `Bearer ${OPENAI_API_KEY}`
 
       },
 
@@ -256,101 +390,7 @@ async function askOpenAI(userText) {
 
         model: "gpt-5.6-luna",
 
-        instructions: `
-
-คุณชื่อ "อาร์ต"
-
-คุณเป็น AI Bot ผู้ช่วยพี่เบนซ์
-
-และทีมงานบริษัท
-
-TTM HOME DESIGN & BUILD-IN
-
-หลักการตอบ:
-
-- ตอบภาษาไทยเป็นหลัก
-
-- สุภาพ เป็นกันเอง
-
-- กระชับ เข้าใจง่าย
-
-- เรียกเจ้าของว่า "พี่เบนซ์"
-
-- ช่วยสมาชิกทีม TTM อย่างมืออาชีพ
-
-- ตอบคำถามตามข้อมูลที่มี
-
-- ถ้าข้อมูลไม่พอ ให้ถามข้อมูลเพิ่ม
-
-- ห้ามแต่งข้อมูล ตัวเลข หรือราคาเอง
-
-งานหลักที่ช่วย:
-
-- งานก่อสร้าง
-
-- งานตกแต่งภายใน
-
-- งาน Built-in
-
-- BOQ
-
-- คำนวณต้นทุน
-
-- ราคาวัสดุ
-
-- ค่าแรง
-
-- Supplier
-
-- เปรียบเทียบราคา
-
-- ใบเสนอราคา
-
-- งานไฟฟ้า
-
-- ตารางโหลด
-
-- งานออกแบบ
-
-- งานหน้างาน
-
-- Project Management
-
-- วิเคราะห์กำไรขาดทุน
-
-- งานเอกสาร
-
-- งานบริษัท
-
-- งานทั่วไปของทีม TTM
-
-เมื่ออยู่ใน LINE Group:
-
-- ตอบคำถามสมาชิกอย่างสุภาพ
-
-- ช่วยประสานงานและสรุปข้อมูล
-
-- หากมีคนเรียก "อาร์ต"
-
-  ให้เข้าใจว่ากำลังเรียก Bot
-
-ความปลอดภัย:
-
-ห้ามเปิดเผย
-
-- OpenAI API Key
-
-- LINE Channel Secret
-
-- LINE Access Token
-
-- Password
-
-- Secret Key
-
-- ข้อมูลลับของระบบ
-
-`,
+        instructions: instructions,
 
         input: userText,
 
@@ -362,15 +402,13 @@ TTM HOME DESIGN & BUILD-IN
 
   );
 
-  const data =
-
-    await response.json();
+  const data = await response.json();
 
   if (!response.ok) {
 
     console.error(
 
-      "OpenAI error:",
+      "OPENAI API ERROR:",
 
       response.status,
 
@@ -380,71 +418,113 @@ TTM HOME DESIGN & BUILD-IN
 
     throw new Error(
 
-      "OpenAI API request failed"
+      `OpenAI API error ${response.status}`
 
     );
 
   }
 
-  // กรณี API ส่ง output_text มาโดยตรง
+  const text = extractOpenAIText(data);
 
-  if (data.output_text) {
+  if (!text) {
 
-    return data.output_text;
-
-  }
-
-  // สำรองกรณีต้องอ่านจาก output
-
-  const text = (data.output || [])
-
-    .flatMap(
-
-      item => item.content || []
-
-    )
-
-    .filter(
-
-      item =>
-
-        item.type === "output_text"
-
-    )
-
-    .map(
-
-      item => item.text
-
-    )
-
-    .join("\n")
-
-    .trim();
-
-  if (text) {
-
-    return text;
+    throw new Error("OpenAI returned no text");
 
   }
 
-  return "อาร์ตได้รับข้อความแล้วครับ";
+  return text;
 
 }
 
-// =========================
+// ==============================
 
-// REPLY LINE
+// EXTRACT OPENAI RESPONSE TEXT
 
-// =========================
+// ==============================
 
-async function replyLINE(
+function extractOpenAIText(data) {
 
-  replyToken,
+  if (
 
-  text
+    data &&
 
-) {
+    typeof data.output_text === "string" &&
+
+    data.output_text.trim()
+
+  ) {
+
+    return data.output_text.trim();
+
+  }
+
+  if (!data || !Array.isArray(data.output)) {
+
+    return "";
+
+  }
+
+  const parts = [];
+
+  for (const item of data.output) {
+
+    if (!item || !Array.isArray(item.content)) {
+
+      continue;
+
+    }
+
+    for (const content of item.content) {
+
+      if (
+
+        content &&
+
+        typeof content.text === "string"
+
+      ) {
+
+        parts.push(content.text);
+
+      }
+
+    }
+
+  }
+
+  return parts.join("\n").trim();
+
+}
+
+// ==============================
+
+// REPLY TO LINE
+
+// ==============================
+
+async function replyLINE(replyToken, text) {
+
+  if (!LINE_CHANNEL_ACCESS_TOKEN) {
+
+    throw new Error(
+
+      "LINE_CHANNEL_ACCESS_TOKEN is missing"
+
+    );
+
+  }
+
+  const safeText = String(text || "")
+
+    .trim()
+
+    .slice(0, 4900);
+
+  if (!safeText) {
+
+    return;
+
+  }
 
   const response = await fetch(
 
@@ -456,9 +536,7 @@ async function replyLINE(
 
       headers: {
 
-        "Content-Type":
-
-          "application/json",
+        "Content-Type": "application/json",
 
         Authorization:
 
@@ -476,9 +554,7 @@ async function replyLINE(
 
             type: "text",
 
-            text: String(text)
-
-              .slice(0, 4900)
+            text: safeText
 
           }
 
@@ -492,10 +568,44 @@ async function replyLINE(
 
   if (!response.ok) {
 
-    const errorText =
-
-      await response.text();
+    const errorText = await response.text();
 
     console.error(
 
-      "LINE reply error:",
+      "LINE REPLY ERROR:",
+
+      response.status,
+
+      errorText
+
+    );
+
+    throw new Error(
+
+      `LINE reply error ${response.status}`
+
+    );
+
+  }
+
+}
+
+// ==============================
+
+// START SERVER
+
+// ==============================
+
+const PORT = process.env.PORT || 3000;
+
+app.listen(PORT, "0.0.0.0", () => {
+
+  console.log(
+
+    `Art TTM server running on port ${PORT}`
+
+  );
+
+  console.log("Webhook: /webhook");
+
+});
