@@ -2,135 +2,75 @@ const express = require("express");
 
 const crypto = require("crypto");
 
+const XLSX = require("xlsx");
+
 const app = express();
 
 const LINE_CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET;
 
-const LINE_CHANNEL_ACCESS_TOKEN =
-
-  process.env.LINE_CHANNEL_ACCESS_TOKEN;
+const LINE_CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const XLSX = require("xlsx");
 
-const { PDFParse } = require("pdf-parse");
+const OPENAI_MODEL = "gpt-5.6-luna";
 
+app.get("/", (req, res) => res.status(200).send("Art TTM LINE Bot is running"));
 
-// ==============================
+app.get("/webhook", (req, res) => res.status(200).send("Art TTM webhook is ready"));
 
-// HEALTH CHECK
+app.post("/webhook", express.raw({ type: "*/*", limit: "25mb" }), async (req, res) => {
 
-// ==============================
+  try {
 
-app.get("/", (req, res) => {
+    const signature = req.get("x-line-signature") || "";
 
-  res.status(200).send("Art TTM LINE Bot is running");
+    if (!verifyLineSignature(req.body, signature)) return res.sendStatus(401);
 
-});
-
-app.get("/webhook", (req, res) => {
-
-  res.status(200).send("Art TTM webhook is ready");
-
-});
-
-// ==============================
-
-// LINE WEBHOOK
-
-// ต้องใช้ raw body เพื่อตรวจ LINE signature
-
-// ==============================
-
-app.post(
-
-  "/webhook",
-
-  express.raw({ type: "*/*" }),
-
-  async (req, res) => {
+    let body;
 
     try {
 
-      const signature = req.get("x-line-signature") || "";
-
-      if (!verifyLineSignature(req.body, signature)) {
-
-        console.error("Invalid LINE signature");
-
-        return res.sendStatus(401);
-
-      }
-
-      let body;
-
-      try {
-
-        body = JSON.parse(req.body.toString("utf8"));
-
-      } catch (error) {
-
-        console.error("Invalid JSON:", error);
-
-        return res.sendStatus(400);
-
-      }
-
-      // ตอบ LINE ทันที ป้องกัน webhook timeout
-
-      res.sendStatus(200);
-
-      const events = Array.isArray(body.events)
-
-        ? body.events
-
-        : [];
-
-      for (const event of events) {
-
-        try {
-
-          await handleLineEvent(event);
-
-        } catch (error) {
-
-          console.error("EVENT ERROR:", error);
-
-        }
-
-      }
+      body = JSON.parse(req.body.toString("utf8"));
 
     } catch (error) {
 
-      console.error("WEBHOOK ERROR:", error);
+      console.error("Invalid webhook JSON:", error);
 
-      if (!res.headersSent) {
+      return res.sendStatus(400);
 
-        res.sendStatus(500);
+    }
+
+    res.sendStatus(200);
+
+    for (const event of Array.isArray(body.events) ? body.events : []) {
+
+      try {
+
+        await handleLineEvent(event);
+
+      } catch (error) {
+
+        console.error("EVENT ERROR:", error);
 
       }
 
     }
 
+  } catch (error) {
+
+    console.error("WEBHOOK ERROR:", error);
+
+    if (!res.headersSent) res.sendStatus(500);
+
   }
 
-);
-
-// ==============================
-
-// VERIFY LINE SIGNATURE
-
-// ==============================
+});
 
 function verifyLineSignature(rawBody, signature) {
 
-  if (!LINE_CHANNEL_SECRET || !signature) {
+  if (!LINE_CHANNEL_SECRET || !signature || !Buffer.isBuffer(rawBody)) return false;
 
-    return false;
-
-  }
-
-  const expectedSignature = crypto
+  const expected = crypto
 
     .createHmac("sha256", LINE_CHANNEL_SECRET)
 
@@ -140,21 +80,13 @@ function verifyLineSignature(rawBody, signature) {
 
   try {
 
-    const expected = Buffer.from(expectedSignature);
+    const a = Buffer.from(expected);
 
-    const received = Buffer.from(signature);
+    const b = Buffer.from(signature);
 
-    if (expected.length !== received.length) {
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
 
-      return false;
-
-    }
-
-    return crypto.timingSafeEqual(expected, received);
-
-  } catch (error) {
-
-    console.error("SIGNATURE ERROR:", error);
+  } catch {
 
     return false;
 
@@ -162,89 +94,51 @@ function verifyLineSignature(rawBody, signature) {
 
 }
 
-// ==============================
-
-// HANDLE LINE EVENT
-
-// ==============================
-
 async function handleLineEvent(event) {
 
-  if (!event) {
+  if (!event) return;
 
-    return;
-
-  }
-
-  // ------------------------------
-
-  // Art TTM ถูกเชิญเข้ากลุ่ม
-
-  // ------------------------------
-
-  if (
-
-    event.type === "join" &&
-
-    event.source &&
-
-    (event.source.type === "group" ||
-
-      event.source.type === "room")
-
-  ) {
-
-    const introduction =
-
-      "สวัสดีครับ ผมชื่อ Art TTM 🤖\n\n" +
-
-      "ผมเป็น Bot ช่วยพี่เบนซ์ทุกด้าน และคอยเก็บข้อมูลรายงานพี่เบนซ์ทุกวันนะครับ";
+  if (event.type === "join") {
 
     if (event.replyToken) {
 
-      await replyLINE(event.replyToken, introduction);
+      await replyLINE(
+
+        event.replyToken,
+
+        "สวัสดีครับ ผมอาร์ต TTM 🤖\nผู้ช่วย AI ของพี่เบนซ์และทีม TTM ครับ\nเรียกผมว่า “อาร์ต” ได้เลยครับ"
+
+      );
 
     }
 
     return;
 
   }
-// ==============================
 
-// IMAGE / FILE MESSAGE ROUTER
+  if (event.type !== "message" || !event.message) return;
 
-// ==============================
+  if (event.message.type === "text") return handleTextMessage(event);
 
-if (
+  if (event.message.type === "image") return handleImageMessage(event);
 
-  event.type === "message" &&
-
-  event.message &&
-
-  (event.message.type === "image" || event.message.type === "file")
-
-) {
-
-  await handleMediaMessage(event);
-
-  return;
+  if (event.message.type === "file") return handleFileMessage(event);
 
 }
-  
 
-  // ------------------------------
+async function handleTextMessage(event) {
 
-  // รับเฉพาะข้อความ Text
+  const text = String(event.message.text || "").trim();
 
-  // ------------------------------
+  if (!text || !event.replyToken) return;
+
+  const sourceType = event.source?.type || "unknown";
 
   if (
 
-    event.type !== "message" ||
+    (sourceType === "group" || sourceType === "room") &&
 
-    !event.message ||
-
-    event.message.type !== "text"
+    !/อาร์ต|art\s*ttm|\bart\b/i.test(text)
 
   ) {
 
@@ -252,149 +146,363 @@ if (
 
   }
 
-  const userText = String(event.message.text || "").trim();
-
-  if (!userText || !event.replyToken) {
-
-    return;
-
-  }
-
-  const sourceType =
-
-    event.source && event.source.type
-
-      ? event.source.type
-
-      : "unknown";
-
-  // ------------------------------
-
-  // ในกลุ่ม:
-
-  // ตอบเฉพาะข้อความที่เรียก "อาร์ต"
-
-  // เพื่อไม่ให้ Bot ตอบทุกข้อความ
-
-  // ------------------------------
-
-  if (
-
-    sourceType === "group" ||
-
-    sourceType === "room"
-
-  ) {
-
-    const calledArt =
-
-      /อาร์ต|art\s*ttm|\bart\b/i.test(userText);
-
-    if (!calledArt) {
-
-      return;
-
-    }
-
-  }
-
-  // ------------------------------
-
-  // ส่งข้อความให้ OpenAI
-
-  // ------------------------------
-
-  let answer;
+  const actor = await getLineActor(event);
 
   try {
 
-    answer = await askOpenAI(userText);
+    const answer = await askOpenAIText(
+
+      `ชื่อผู้ส่งใน LINE: ${actor.displayName}\nประเภทแชต: ${sourceType}\n\nข้อความ:\n${text}`
+
+    );
+
+    await replyLINE(event.replyToken, answer);
 
   } catch (error) {
 
-    console.error("OPENAI ERROR:", error);
+    console.error("TEXT ERROR:", error);
 
-    answer =
+    await replyLINE(
 
-      "อาร์ตเชื่อมต่อระบบ AI ไม่สำเร็จชั่วคราวครับพี่เบนซ์ กรุณาลองอีกครั้งครับ";
+      event.replyToken,
+
+      "อาร์ตเชื่อมต่อ AI ไม่สำเร็จชั่วคราวครับ กรุณาลองอีกครั้งครับ"
+
+    );
 
   }
-
-  await replyLINE(event.replyToken, answer);
 
 }
 
-// ==============================
+async function getLineActor(event) {
 
-// OPENAI
+  const source = event.source || {};
 
-// ==============================
+  const userId = source.userId || "";
 
-async function askOpenAI(userText) {
+  const fallback = {
 
-  if (!OPENAI_API_KEY) {
+    userId,
 
-    throw new Error("OPENAI_API_KEY is missing");
+    displayName: "สมาชิกใน LINE"
+
+  };
+
+  if (!userId || !LINE_CHANNEL_ACCESS_TOKEN) return fallback;
+
+  let url;
+
+  if (source.type === "group" && source.groupId) {
+
+    url =
+
+      `https://api.line.me/v2/bot/group/${encodeURIComponent(source.groupId)}` +
+
+      `/member/${encodeURIComponent(userId)}`;
+
+  } else if (source.type === "room" && source.roomId) {
+
+    url =
+
+      `https://api.line.me/v2/bot/room/${encodeURIComponent(source.roomId)}` +
+
+      `/member/${encodeURIComponent(userId)}`;
+
+  } else {
+
+    url =
+
+      `https://api.line.me/v2/bot/profile/${encodeURIComponent(userId)}`;
 
   }
 
-  const instructions = `
+  try {
 
-คุณชื่อ "Art TTM" หรือ "อาร์ต"
+    const response = await fetch(url, {
 
-คุณเป็นผู้ช่วย AI ของพี่เบนซ์ และบริษัท
+      headers: {
 
-TTM HOME DESIGN & BUILD-IN CO., LTD.
+        Authorization: `Bearer ${LINE_CHANNEL_ACCESS_TOKEN}`
 
-ให้ตอบเป็นภาษาไทยเป็นหลัก
+      }
 
-เรียกผู้ใช้ว่า "พี่เบนซ์" เมื่อเหมาะสม
+    });
 
-หน้าที่ของคุณ ได้แก่:
+    if (!response.ok) return fallback;
 
-- ช่วยงานก่อสร้าง
+    const data = await response.json();
 
-- งานตกแต่งภายใน
+    return {
 
-- งานบิวท์อิน
+      userId: data.userId || userId,
 
-- BOQ
+      displayName: data.displayName || fallback.displayName,
 
-- ถอดปริมาณ
+      pictureUrl: data.pictureUrl || ""
 
-- คำนวณต้นทุน
+    };
 
-- คำนวณกำไร
+  } catch {
 
-- เปรียบเทียบราคาวัสดุ
+    return fallback;
 
-- ข้อมูล Supplier
+  }
 
-- งานโครงการ
+}
 
-- งานเอกสาร
+async function downloadLineContent(messageId) {
 
-- งานบริหาร
+  if (!LINE_CHANNEL_ACCESS_TOKEN) {
 
-- งานทั่วไปที่พี่เบนซ์มอบหมาย
+    throw new Error("LINE_CHANNEL_ACCESS_TOKEN missing");
 
-หลักการตอบ:
+  }
 
-- ตอบให้ตรงคำถาม
+  const response = await fetch(
 
-- กระชับแต่ครบ
+    `https://api-data.line.me/v2/bot/message/${encodeURIComponent(messageId)}/content`,
 
-- ห้ามแต่งข้อมูลที่ไม่มี
+    {
 
-- ถ้าไม่ทราบให้บอกว่าไม่ทราบ
+      headers: {
 
-- ตัวเลขและการคำนวณต้องระมัดระวัง
+        Authorization: `Bearer ${LINE_CHANNEL_ACCESS_TOKEN}`
 
-- ข้อมูลสำคัญให้สรุปให้อ่านง่าย
+      }
 
-- หากเป็นข้อมูลจากสมาชิกในกลุ่ม ให้ช่วยจัดระเบียบข้อมูลเพื่อใช้สรุปรายงานภายหลัง
+    }
 
-`;
+  );
+
+  if (!response.ok) {
+
+    throw new Error(`LINE content error ${response.status}`);
+
+  }
+
+  return {
+
+    buffer: Buffer.from(await response.arrayBuffer()),
+
+    contentType:
+
+      response.headers.get("content-type") || "application/octet-stream"
+
+  };
+
+}
+
+async function handleImageMessage(event) {
+
+  if (!event.replyToken || !event.message?.id) return;
+
+  try {
+
+    const actor = await getLineActor(event);
+
+    const media = await downloadLineContent(event.message.id);
+
+    const mimeType = normalizeImageMime(media.contentType);
+
+    const dataUrl =
+
+      `data:${mimeType};base64,${media.buffer.toString("base64")}`;
+
+    const prompt =
+
+      `ผู้ส่งรูปใน LINE: ${actor.displayName}\n` +
+
+      "วิเคราะห์รูปนี้อย่างละเอียด ถ้าเป็น BOQ ใบเสนอราคา ใบเสร็จ " +
+
+      "รายการวัสดุ หรือเอกสารก่อสร้าง ให้ถอดชื่อผู้ขาย วันที่ รายการ " +
+
+      "จำนวน หน่วย ราคาต่อหน่วย ยอดรวม VAT และหมายเหตุ " +
+
+      "ถ้าเป็นรูปหน้างานให้สรุปสิ่งที่เห็น งานที่ดำเนินการ " +
+
+      "จุดตรวจสอบ และปัญหาที่สังเกตได้ ห้ามเดาข้อมูลที่อ่านไม่ชัด";
+
+    const answer = await askOpenAIImage(prompt, dataUrl);
+
+    await replyLINE(
+
+      event.replyToken,
+
+      `ผู้ส่ง: ${actor.displayName}\n\n${answer}`
+
+    );
+
+  } catch (error) {
+
+    console.error("IMAGE ERROR:", error);
+
+    await replyLINE(
+
+      event.replyToken,
+
+      "อาร์ตได้รับรูปแล้ว แต่การวิเคราะห์รูปไม่สำเร็จครับ กรุณาลองส่งใหม่ครับ"
+
+    );
+
+  }
+
+}
+
+async function handleFileMessage(event) {
+
+  if (!event.replyToken || !event.message?.id) return;
+
+  const fileName = String(
+
+    event.message.fileName || "unknown-file"
+
+  );
+
+  try {
+
+    const actor = await getLineActor(event);
+
+    const media = await downloadLineContent(event.message.id);
+
+    const lowerName = fileName.toLowerCase();
+
+    let answer;
+
+    if (
+
+      lowerName.endsWith(".xlsx") ||
+
+      lowerName.endsWith(".xls")
+
+    ) {
+
+      answer = await analyzeExcel(
+
+        media.buffer,
+
+        fileName,
+
+        actor.displayName
+
+      );
+
+    } else if (lowerName.endsWith(".pdf")) {
+
+      answer = await analyzePDF(
+
+        media.buffer,
+
+        fileName,
+
+        actor.displayName
+
+      );
+
+    } else {
+
+      answer =
+
+        `อาร์ตได้รับไฟล์ ${fileName} แล้วครับ\n` +
+
+        "Phase 2 ตอนนี้รองรับ PDF, XLSX และ XLS ก่อนครับ";
+
+    }
+
+    await replyLINE(
+
+      event.replyToken,
+
+      `ผู้ส่ง: ${actor.displayName}\n\n${answer}`
+
+    );
+
+  } catch (error) {
+
+    console.error("FILE ERROR:", error);
+
+    await replyLINE(
+
+      event.replyToken,
+
+      `อาร์ตได้รับไฟล์แล้ว แต่การอ่าน ${fileName} ไม่สำเร็จครับ กรุณาลองส่งใหม่ครับ`
+
+    );
+
+  }
+
+}
+
+async function analyzeExcel(buffer, fileName, displayName) {
+
+  const workbook = XLSX.read(buffer, {
+
+    type: "buffer",
+
+    cellDates: true
+
+  });
+
+  const sections = [];
+
+  for (const sheetName of workbook.SheetNames.slice(0, 12)) {
+
+    const sheet = workbook.Sheets[sheetName];
+
+    if (!sheet) continue;
+
+    const csv = XLSX.utils.sheet_to_csv(sheet, {
+
+      blankrows: false
+
+    });
+
+    sections.push(
+
+      `===== SHEET: ${sheetName} =====\n${csv.slice(0, 25000)}`
+
+    );
+
+  }
+
+  const workbookText = sections.join("\n\n");
+
+  if (!workbookText.trim()) {
+
+    return "อาร์ตเปิดไฟล์ Excel ได้ แต่ไม่พบข้อมูลในชีตครับ";
+
+  }
+
+  return askOpenAIText(
+
+    `ผู้ส่งไฟล์: ${displayName}\n` +
+
+    `ชื่อไฟล์: ${fileName}\n\n` +
+
+    `ข้อมูลจาก Excel:\n${workbookText}\n\n` +
+
+    "วิเคราะห์ข้อมูล ถ้าเป็น BOQ ให้สรุปหมวดงาน รายการ จำนวน หน่วย " +
+
+    "ราคาต่อหน่วย ยอดรวม และจุดที่ควรตรวจสอบ " +
+
+    "ห้ามสร้างตัวเลขที่ไม่มีในไฟล์"
+
+  );
+
+}
+
+async function analyzePDF(buffer, fileName, displayName) {
+
+  if (!OPENAI_API_KEY) {
+
+    throw new Error("OPENAI_API_KEY missing");
+
+  }
+
+  if (buffer.length > 45 * 1024 * 1024) {
+
+    return "ไฟล์ PDF มีขนาดใหญ่เกินไปสำหรับการวิเคราะห์ในครั้งเดียวครับ";
+
+  }
 
   const response = await fetch(
 
@@ -404,23 +512,61 @@ TTM HOME DESIGN & BUILD-IN CO., LTD.
 
       method: "POST",
 
-      headers: {
-
-        "Content-Type": "application/json",
-
-        Authorization: `Bearer ${OPENAI_API_KEY}`
-
-      },
+      headers: openAIHeaders(),
 
       body: JSON.stringify({
 
-        model: "gpt-5.6-luna",
+        model: OPENAI_MODEL,
 
-        instructions: instructions,
+        instructions: buildInstructions(),
 
-        input: userText,
+        input: [
 
-        max_output_tokens: 1000
+          {
+
+            role: "user",
+
+            content: [
+
+              {
+
+                type: "input_file",
+
+                filename: fileName,
+
+                file_data:
+
+                  `data:application/pdf;base64,${buffer.toString("base64")}`
+
+              },
+
+              {
+
+                type: "input_text",
+
+                text:
+
+                  `ผู้ส่งไฟล์: ${displayName}\n` +
+
+                  `ชื่อไฟล์: ${fileName}\n` +
+
+                  "อ่าน PDF นี้อย่างละเอียด ถ้าเป็น BOQ ใบเสนอราคา " +
+
+                  "หรือเอกสารก่อสร้าง ให้สรุปหมวดงาน รายการ จำนวน หน่วย " +
+
+                  "ราคาต่อหน่วย ยอดรวม VAT และหมายเหตุ " +
+
+                  "ห้ามเดาข้อมูลที่ไม่มีในเอกสาร"
+
+              }
+
+            ]
+
+          }
+
+        ],
+
+        max_output_tokens: 1800
 
       })
 
@@ -428,23 +574,147 @@ TTM HOME DESIGN & BUILD-IN CO., LTD.
 
   );
 
-  const data = await response.json();
+  return parseOpenAIResponse(response, "PDF");
+
+}
+
+async function askOpenAIText(text) {
+
+  if (!OPENAI_API_KEY) {
+
+    throw new Error("OPENAI_API_KEY missing");
+
+  }
+
+  const response = await fetch(
+
+    "https://api.openai.com/v1/responses",
+
+    {
+
+      method: "POST",
+
+      headers: openAIHeaders(),
+
+      body: JSON.stringify({
+
+        model: OPENAI_MODEL,
+
+        instructions: buildInstructions(),
+
+        input: text,
+
+        max_output_tokens: 1400
+
+      })
+
+    }
+
+  );
+
+  return parseOpenAIResponse(response, "TEXT");
+
+}
+
+async function askOpenAIImage(prompt, imageDataUrl) {
+
+  if (!OPENAI_API_KEY) {
+
+    throw new Error("OPENAI_API_KEY missing");
+
+  }
+
+  const response = await fetch(
+
+    "https://api.openai.com/v1/responses",
+
+    {
+
+      method: "POST",
+
+      headers: openAIHeaders(),
+
+      body: JSON.stringify({
+
+        model: OPENAI_MODEL,
+
+        instructions: buildInstructions(),
+
+        input: [
+
+          {
+
+            role: "user",
+
+            content: [
+
+              {
+
+                type: "input_text",
+
+                text: prompt
+
+              },
+
+              {
+
+                type: "input_image",
+
+                image_url: imageDataUrl,
+
+                detail: "high"
+
+              }
+
+            ]
+
+          }
+
+        ],
+
+        max_output_tokens: 1600
+
+      })
+
+    }
+
+  );
+
+  return parseOpenAIResponse(response, "IMAGE");
+
+}
+
+function openAIHeaders() {
+
+  return {
+
+    "Content-Type": "application/json",
+
+    Authorization: `Bearer ${OPENAI_API_KEY}`
+
+  };
+
+}
+
+async function parseOpenAIResponse(response, label) {
+
+  const data = await response.json().catch(() => null);
 
   if (!response.ok) {
 
     console.error(
 
-      "OPENAI API ERROR:",
+      `OPENAI ${label} ERROR:`,
 
       response.status,
 
-      JSON.stringify(data)
+      data
 
     );
 
     throw new Error(
 
-      `OpenAI API error ${response.status}`
+      `${label}: OpenAI API error ${response.status}`
 
     );
 
@@ -454,7 +724,11 @@ TTM HOME DESIGN & BUILD-IN CO., LTD.
 
   if (!text) {
 
-    throw new Error("OpenAI returned no text");
+    throw new Error(
+
+      `${label}: OpenAI returned no text`
+
+    );
 
   }
 
@@ -462,19 +736,11 @@ TTM HOME DESIGN & BUILD-IN CO., LTD.
 
 }
 
-// ==============================
-
-// EXTRACT OPENAI RESPONSE TEXT
-
-// ==============================
-
 function extractOpenAIText(data) {
 
   if (
 
-    data &&
-
-    typeof data.output_text === "string" &&
+    typeof data?.output_text === "string" &&
 
     data.output_text.trim()
 
@@ -484,33 +750,27 @@ function extractOpenAIText(data) {
 
   }
 
-  if (!data || !Array.isArray(data.output)) {
-
-    return "";
-
-  }
-
   const parts = [];
 
-  for (const item of data.output) {
+  for (const item of Array.isArray(data?.output) ? data.output : []) {
 
-    if (!item || !Array.isArray(item.content)) {
+    for (
 
-      continue;
+      const content of
 
-    }
+      Array.isArray(item?.content) ? item.content : []
 
-    for (const content of item.content) {
+    ) {
 
       if (
 
-        content &&
+        typeof content?.text === "string" &&
 
-        typeof content.text === "string"
+        content.text.trim()
 
       ) {
 
-        parts.push(content.text);
+        parts.push(content.text.trim());
 
       }
 
@@ -522,21 +782,65 @@ function extractOpenAIText(data) {
 
 }
 
-// ==============================
+function buildInstructions() {
 
-// REPLY TO LINE
+  return (
 
-// ==============================
+    "คุณชื่อ Art TTM หรือ อาร์ต เป็นผู้ช่วย AI ของพี่เบนซ์และ " +
+
+    "TTM HOME DESIGN & BUILD-IN CO., LTD. ตอบภาษาไทยเป็นหลัก " +
+
+    "ช่วยงานก่อสร้าง ตกแต่งภายใน บิวท์อิน BOQ ถอดปริมาณ ต้นทุน " +
+
+    "กำไร Supplier วิเคราะห์รูปหน้างาน ใบเสนอราคา PDF และ Excel " +
+
+    "ใช้ชื่อผู้ส่งจาก LINE เป็น Display Name " +
+
+    "ห้ามเดาชื่อบุคคลจากภาพ ห้ามเดาตัวเลข " +
+
+    "ถ้าอ่านไม่ชัดให้บอกว่าอ่านไม่ชัด " +
+
+    "ตรวจหน่วยและตัวเลขอย่างระมัดระวัง " +
+
+    "และตอบสุภาพเป็นกันเองกับทีม TTM"
+
+  );
+
+}
+
+function normalizeImageMime(contentType) {
+
+  const type = String(contentType || "")
+
+    .split(";")[0]
+
+    .trim()
+
+    .toLowerCase();
+
+  return [
+
+    "image/jpeg",
+
+    "image/png",
+
+    "image/webp",
+
+    "image/gif"
+
+  ].includes(type)
+
+    ? type
+
+    : "image/jpeg";
+
+}
 
 async function replyLINE(replyToken, text) {
 
   if (!LINE_CHANNEL_ACCESS_TOKEN) {
 
-    throw new Error(
-
-      "LINE_CHANNEL_ACCESS_TOKEN is missing"
-
-    );
+    throw new Error("LINE_CHANNEL_ACCESS_TOKEN missing");
 
   }
 
@@ -546,11 +850,7 @@ async function replyLINE(replyToken, text) {
 
     .slice(0, 4900);
 
-  if (!safeText) {
-
-    return;
-
-  }
+  if (!safeText) return;
 
   const response = await fetch(
 
@@ -572,7 +872,7 @@ async function replyLINE(replyToken, text) {
 
       body: JSON.stringify({
 
-        replyToken: replyToken,
+        replyToken,
 
         messages: [
 
@@ -594,18 +894,6 @@ async function replyLINE(replyToken, text) {
 
   if (!response.ok) {
 
-    const errorText = await response.text();
-
-    console.error(
-
-      "LINE REPLY ERROR:",
-
-      response.status,
-
-      errorText
-
-    );
-
     throw new Error(
 
       `LINE reply error ${response.status}`
@@ -615,140 +903,16 @@ async function replyLINE(replyToken, text) {
   }
 
 }
-// ==============================
-
-// DOWNLOAD CONTENT FROM LINE
-
-// ==============================
-
-async function downloadLineContent(messageId) {
-
-  const response = await fetch(
-
-    `https://api-data.line.me/v2/bot/message/${messageId}/content`,
-
-    {
-
-      method: "GET",
-
-      headers: {
-
-        Authorization: `Bearer ${LINE_CHANNEL_ACCESS_TOKEN}`
-
-      }
-
-    }
-
-  );
-
-  if (!response.ok) {
-
-    const errorText = await response.text();
-
-    console.error("LINE CONTENT ERROR:", response.status, errorText);
-
-    throw new Error(`LINE content error ${response.status}`);
-
-  }
-
-  const arrayBuffer = await response.arrayBuffer();
-
-  return {
-
-    buffer: Buffer.from(arrayBuffer),
-
-    contentType:
-
-      response.headers.get("content-type") ||
-
-      "application/octet-stream"
-
-  };
-
-}
-
-// ==============================
-
-// HANDLE IMAGE / FILE
-
-// ==============================
-
-async function handleMediaMessage(event) {
-
-  try {
-
-    if (!event.replyToken || !event.message || !event.message.id) {
-
-      return;
-
-    }
-
-    const media = await downloadLineContent(event.message.id);
-
-    if (event.message.type === "image") {
-
-      await replyLINE(
-
-        event.replyToken,
-
-        "อาร์ตได้รับรูปแล้วครับพี่เบนซ์ 🖼️ กำลังเตรียมระบบอ่านและวิเคราะห์รูปครับ"
-
-      );
-
-      return;
-
-    }
-
-    if (event.message.type === "file") {
-
-      const fileName = event.message.fileName || "unknown-file";
-
-      await replyLINE(
-
-        event.replyToken,
-
-        `อาร์ตได้รับไฟล์ ${fileName} แล้วครับ 📄 กำลังเตรียมระบบอ่าน PDF/Excel ครับ`
-
-      );
-
-      return;
-
-    }
-
-  } catch (error) {
-
-    console.error("MEDIA ERROR:", error);
-
-    if (event.replyToken) {
-
-      await replyLINE(
-
-        event.replyToken,
-
-        "อาร์ตรับรูปหรือไฟล์ไม่สำเร็จชั่วคราวครับ กรุณาลองส่งอีกครั้งครับ"
-
-      );
-
-    }
-
-  }
-
-}
-
-
-// ==============================
-
-// START SERVER
-
-// ==============================
 
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, "0.0.0.0", () => {
 
+  console.log(`Art TTM server running on port ${PORT}`);
+
   console.log(
 
-    `Art TTM server running on port ${PORT}`
+    "Phase 2: Text + Member Name + Image + PDF + Excel"
 
   );
 
