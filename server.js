@@ -11,6 +11,10 @@ const LINE_CHANNEL_ACCESS_TOKEN =
   process.env.LINE_CHANNEL_ACCESS_TOKEN;
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const XLSX = require("xlsx");
+
+const { PDFParse } = require("pdf-parse");
+
 
 // ==============================
 
@@ -205,6 +209,28 @@ async function handleLineEvent(event) {
     return;
 
   }
+// ==============================
+
+// IMAGE / FILE MESSAGE ROUTER
+
+// ==============================
+
+if (
+
+  event.type === "message" &&
+
+  event.message &&
+
+  (event.message.type === "image" || event.message.type === "file")
+
+) {
+
+  await handleMediaMessage(event);
+
+  return;
+
+}
+  
 
   // ------------------------------
 
@@ -589,6 +615,126 @@ async function replyLINE(replyToken, text) {
   }
 
 }
+// ==============================
+
+// DOWNLOAD CONTENT FROM LINE
+
+// ==============================
+
+async function downloadLineContent(messageId) {
+
+  const response = await fetch(
+
+    `https://api-data.line.me/v2/bot/message/${messageId}/content`,
+
+    {
+
+      method: "GET",
+
+      headers: {
+
+        Authorization: `Bearer ${LINE_CHANNEL_ACCESS_TOKEN}`
+
+      }
+
+    }
+
+  );
+
+  if (!response.ok) {
+
+    const errorText = await response.text();
+
+    console.error("LINE CONTENT ERROR:", response.status, errorText);
+
+    throw new Error(`LINE content error ${response.status}`);
+
+  }
+
+  const arrayBuffer = await response.arrayBuffer();
+
+  return {
+
+    buffer: Buffer.from(arrayBuffer),
+
+    contentType:
+
+      response.headers.get("content-type") ||
+
+      "application/octet-stream"
+
+  };
+
+}
+
+// ==============================
+
+// HANDLE IMAGE / FILE
+
+// ==============================
+
+async function handleMediaMessage(event) {
+
+  try {
+
+    if (!event.replyToken || !event.message || !event.message.id) {
+
+      return;
+
+    }
+
+    const media = await downloadLineContent(event.message.id);
+
+    if (event.message.type === "image") {
+
+      await replyLINE(
+
+        event.replyToken,
+
+        "อาร์ตได้รับรูปแล้วครับพี่เบนซ์ 🖼️ กำลังเตรียมระบบอ่านและวิเคราะห์รูปครับ"
+
+      );
+
+      return;
+
+    }
+
+    if (event.message.type === "file") {
+
+      const fileName = event.message.fileName || "unknown-file";
+
+      await replyLINE(
+
+        event.replyToken,
+
+        `อาร์ตได้รับไฟล์ ${fileName} แล้วครับ 📄 กำลังเตรียมระบบอ่าน PDF/Excel ครับ`
+
+      );
+
+      return;
+
+    }
+
+  } catch (error) {
+
+    console.error("MEDIA ERROR:", error);
+
+    if (event.replyToken) {
+
+      await replyLINE(
+
+        event.replyToken,
+
+        "อาร์ตรับรูปหรือไฟล์ไม่สำเร็จชั่วคราวครับ กรุณาลองส่งอีกครั้งครับ"
+
+      );
+
+    }
+
+  }
+
+}
+
 
 // ==============================
 
