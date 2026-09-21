@@ -2,9 +2,9 @@
 
   "name": "art-ttm-line-bot",
 
-  "version": "1.0.0",
+  "version": "2.0.0",
 
-  "description": "Art TTM LINE AI Webhook Server",
+  "description": "Art TTM LINE AI Assistant",
 
   "main": "server.js",
 
@@ -16,13 +16,17 @@
 
   "engines": {
 
-    "node": ">=20"
+    "node": ">=20.16.0"
 
   },
 
   "dependencies": {
 
-    "express": "^5.1.0"
+    "express": "^5.1.0",
+
+    "pdf-parse": "^2.4.5",
+
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
 
   }
 
