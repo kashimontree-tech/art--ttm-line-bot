@@ -700,75 +700,83 @@ async function rememberGroup(event) {
 
 async function rememberActor(event, actor) {
 
-  if (!supabaseReady()) return;
+  if (!supabaseReady()) {
 
-  if (!actor?.userId) return;
+    console.error("REMEMBER ACTOR: Supabase is not ready");
 
-  const source = event.source || {};
+    return false;
+
+  }
+
+  if (!actor?.userId) {
+
+    console.error("REMEMBER ACTOR: LINE userId missing");
+
+    return false;
+
+  }
 
   try {
 
-    const encoded =
+    const encodedUserId = encodeURIComponent(actor.userId);
 
-      encodeURIComponent(actor.userId);
+    // ตรวจว่าคนนี้เคยถูกบันทึกหรือยัง
 
     const found = await supabaseREST(
 
-      `line_members?line_user_id=eq.${encoded}` +
+      `line_members?line_user_id=eq.${encodedUserId}` +
 
-      `&select=id,line_user_id&limit=1`
+      `&select=id,line_user_id,display_name&limit=1`
 
     );
 
-    const data = {
+    if (found === null) {
+
+      console.error(
+
+        "REMEMBER ACTOR: Cannot read line_members",
+
+        actor.userId
+
+      );
+
+      return false;
+
+    }
+
+    // รอบแรกใช้เฉพาะ column ที่ยืนยันแล้วว่ามีจริง
+
+    const memberData = {
 
       line_user_id: actor.userId,
 
       display_name:
 
-        actor.displayName ||
+        actor.displayName && actor.displayName !== "สมาชิกใน LINE"
 
-        "สมาชิกใน LINE",
+          ? actor.displayName
 
-      picture_url:
-
-        actor.pictureUrl || null,
-
-      source_type:
-
-        source.type || null,
-
-      group_id:
-
-        source.groupId || null,
-
-      room_id:
-
-        source.roomId || null,
-
-      last_seen_at:
-
-        new Date().toISOString(),
-
-      updated_at:
-
-        new Date().toISOString()
+          : null
 
     };
 
-    if (Array.isArray(found) && found.length) {
+    let result;
 
-      await supabaseREST(
+    if (Array.isArray(found) && found.length > 0) {
 
-        `line_members?line_user_id=eq.${encoded}`,
+      // สมาชิกเดิม -> อัปเดตชื่อ
+
+      result = await supabaseREST(
+
+        `line_members?line_user_id=eq.${encodedUserId}`,
 
         {
 
           method: "PATCH",
 
-          body: data,
+          body: memberData,
 
-          prefer: "return=minimal"
+          prefer: "return=representation"
 
         }
 
@@ -776,7 +784,9 @@ async function rememberActor(event, actor) {
 
     } else {
 
-      await supabaseREST(
+      // สมาชิกใหม่ -> เพิ่มข้อมูล
+
+      result = await supabaseREST(
 
         "line_members",
 
@@ -784,27 +794,41 @@ async function rememberActor(event, actor) {
 
           method: "POST",
 
-          body: {
+          body: memberData,
 
-            ...data,
-
-            first_seen_at:
-
-              new Date().toISOString(),
-
-            created_at:
-
-              new Date().toISOString()
-
-          },
-
-          prefer: "return=minimal"
+          prefer: "return=representation"
 
         }
 
       );
 
     }
+
+    if (result === null) {
+
+      console.error(
+
+        "REMEMBER ACTOR: Save failed",
+
+        actor.userId
+
+      );
+
+      return false;
+
+    }
+
+    console.log(
+
+      "REMEMBER ACTOR SUCCESS:",
+
+      actor.userId,
+
+      actor.displayName
+
+    );
+
+    return true;
 
   } catch (error) {
 
@@ -816,31 +840,11 @@ async function rememberActor(event, actor) {
 
     );
 
+    return false;
+
   }
 
 }
-
-// ============================================================
-
-// REMEMBER MESSAGE
-
-// ============================================================
-
-async function rememberMessage(
-
-  event,
-
-  actor,
-
-  content,
-
-  messageType
-
-) {
-
-  if (!supabaseReady()) return;
-
-  const source = event.source || {};
 
   try {
 
