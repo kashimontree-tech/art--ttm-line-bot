@@ -846,8 +846,7 @@ async function rememberActor(event, actor) {
 
 }
 
-  async function rememberMessage(event, actor, content, messageType) {
-
+  async function rememberMessage(event, actor, content, messageType)
   if (!supabaseReady()) return;
 
   const source = event.source || {};
