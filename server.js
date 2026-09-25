@@ -846,7 +846,7 @@ async function rememberActor(event, actor) {
 
 }
 
-  try {async function rememberMessage(event, actor, content, messageType) {
+  async function rememberMessage(event, actor, content, messageType) {
 
   if (!supabaseReady()) return;
 
