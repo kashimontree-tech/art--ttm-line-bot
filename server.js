@@ -846,7 +846,87 @@ async function rememberActor(event, actor) {
 
 }
 
+  try {async function rememberMessage(event, actor, content, messageType) {
+
+  if (!supabaseReady()) return;
+
+  const source = event.source || {};
+
   try {
+
+    await supabaseREST(
+
+      "line_memories",
+
+      {
+
+        method: "POST",
+
+        body: {
+
+          line_message_id: event.message?.id || null,
+
+          line_user_id: actor?.userId || null,
+
+          display_name:
+
+            actor?.displayName || "สมาชิกใน LINE",
+
+          source_type: source.type || null,
+
+          group_id: source.groupId || null,
+
+          room_id: source.roomId || null,
+
+          message_type:
+
+            messageType ||
+
+            event.message?.type ||
+
+            "text",
+
+          text_content:
+
+            String(content || "").slice(0, 30000),
+
+          file_name:
+
+            event.message?.fileName || null,
+
+          mime_type: null,
+
+          metadata: {
+
+            sender: "user",
+
+            sourceType: source.type || null
+
+          },
+
+          created_at: new Date().toISOString()
+
+        },
+
+        prefer: "return=minimal"
+
+      }
+
+    );
+
+  } catch (error) {
+
+    console.error(
+
+      "REMEMBER MESSAGE ERROR:",
+
+      error
+
+    );
+
+  }
+
+}
 
     await supabaseREST(
 
