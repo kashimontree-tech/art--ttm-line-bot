@@ -320,9 +320,18 @@ function looksLikeMemory(text) {
 async function saveLongTermMemory({ scopeId, userId, displayName, sourceType, source, text, lineMessageId, mentionedMembers = [] }) {
   if (!looksLikeMemory(text)) return;
   const mentionedNames = mentionedMembers.map((m) => m.displayName).filter(Boolean);
+  const relationMatch = (text || "").match(/(แฟน|ภรรยา|สามี|ลูก|พ่อ|แม่|พี่|น้อง|เพื่อน|หุ้นส่วน|ลูกน้อง|หัวหน้า)/);
+  const relation = relationMatch ? relationMatch[1] : null;
   const normalizedMemory = mentionedNames.length
-    ? `${text}\nบุคคลที่ถูก @mention ในข้อความนี้มีชื่อ LINE จริง: ${mentionedNames.join(", ")}`
-    : text;
+    ? [
+        `ผู้พูดชื่อ LINE: ${displayName || "ไม่ทราบชื่อ"} (LINE userId: ${userId || "unknown"})`,
+        `ข้อความ: ${text}`,
+        `บุคคลที่ถูก @mention: ${mentionedNames.join(", ")}`,
+        relation && mentionedNames.length === 1
+          ? `ข้อเท็จจริงความสัมพันธ์: ${mentionedNames[0]} เป็น${relation}ของ${displayName || "ผู้พูด"}`
+          : "",
+      ].filter(Boolean).join("\n")
+    : `ผู้พูดชื่อ LINE: ${displayName || "ไม่ทราบชื่อ"}\nข้อความ: ${text}`;
   await supabaseRequest("line_memories", {
     method: "POST",
     prefer: "return=minimal",
@@ -346,7 +355,13 @@ async function saveLongTermMemory({ scopeId, userId, displayName, sourceType, so
 async function askOpenAI(userText, recentContext, memberContext, longTermMemory, currentDisplayName, mentionedMembers = []) {
   if (!OPENAI_API_KEY) throw new Error("Missing OPENAI_API_KEY");
 
+  const mentionContext = mentionedMembers.length
+    ? mentionedMembers.map((m) => `@mention นี้คือสมาชิก LINE ชื่อ ${m.displayName} userId=${m.userId}`).join("\n")
+    : "ไม่มี @mention ในข้อความล่าสุด";
+
   const input = [
+    `ผู้ส่งข้อความล่าสุดคือสมาชิก LINE ชื่อ: ${currentDisplayName || "ไม่ทราบชื่อ"}`,
+    `ข้อมูล @mention ของข้อความล่าสุด:\n${mentionContext}`,
     memberContext ? `สมาชิกที่ระบบรู้จักในห้องนี้:\n${memberContext}` : "",
     longTermMemory ? `ความจำระยะยาวของห้องนี้:\n${longTermMemory}` : "",
     recentContext ? `บทสนทนาล่าสุดในห้องนี้:\n${recentContext}` : "",
@@ -362,7 +377,7 @@ async function askOpenAI(userText, recentContext, memberContext, longTermMemory,
     body: JSON.stringify({
       model: OPENAI_MODEL,
       instructions:
-        "คุณคือ Art TTM ผู้ช่วย AI ของทีม TTM HOME DESIGN & BUILD-IN ตอบภาษาไทยเป็นหลัก สุภาพ กระชับ ชัดเจน ช่วยงานก่อสร้าง ออกแบบ BOQ ต้นทุน งานระบบ และงานทั่วไปของทีม ใช้ข้อมูลสมาชิก ความจำระยะยาว และบทสนทนาล่าสุดเป็นบริบทเมื่อเกี่ยวข้อง ชื่อจาก LINE member profile และชื่อของคนที่ถูก @mention ถือเป็นชื่อใน LINE ของบุคคลนั้น ต้องรู้ว่าใครเป็นคนส่งข้อความล่าสุดจากชื่อ LINE ที่ให้มา และตอบกับคนนั้นให้ถูกคน ถ้าผู้ใช้บอกความสัมพันธ์พร้อม @mention เช่น แฟน ภรรยา สามี ลูก พี่ น้อง หรือเพื่อน ให้ผูกความสัมพันธ์นั้นกับผู้พูดและชื่อ LINE จริงของคนที่ถูก mention แล้วใช้ตอบในครั้งถัดไป เช่น ถ้าผู้พูดบอกว่า @จูน เป็นแฟน แล้วผู้พูดคนเดิมถามว่าแฟนพี่ชื่ออะไร ให้ตอบว่าจูน ถ้าสมาชิกคนอื่นถาม ให้แยกความสัมพันธ์ตามผู้พูด ห้ามสลับเจ้าของความสัมพันธ์ ถ้ามีข้อมูลชื่อหรือความสัมพันธ์ในบริบทให้ตอบตามข้อมูลนั้นโดยไม่เดา หากข้อมูลไม่พอให้ถามกลับ และห้ามแต่งข้อมูลหรือราคาโดยไม่มีฐานอ้างอิง",
+        "คุณคือ Art TTM ผู้ช่วย AI ของทีม TTM HOME DESIGN & BUILD-IN ตอบภาษาไทยเป็นหลัก สุภาพ กระชับ ชัดเจน ผู้ส่งข้อความล่าสุดจะถูกระบุชื่อ LINE ให้ชัดเจนใน input: ให้ถือชื่อนั้นเป็นตัวตนของคนที่กำลังคุยด้วยเสมอ ใช้ข้อมูลสมาชิก ความจำระยะยาว และบทสนทนาล่าสุดจาก Supabase เป็นข้อเท็จจริงเมื่อเกี่ยวข้อง โดยเฉพาะบรรทัด 'ข้อเท็จจริงความสัมพันธ์' ถ้าความจำระบุว่า 'จูน เป็นแฟนของ Benz' แล้ว Benz ถามว่าแฟนพี่ชื่ออะไร ต้องตอบ 'จูน' ทันที ถ้าจูนถามว่าฉันเป็นอะไรกับ Benz ให้ตอบว่าเป็นแฟนของ Benz ห้ามขอข้อมูลซ้ำเมื่อความจำมีคำตอบแล้ว ชื่อจาก LINE member profile และชื่อ @mention เป็นชื่อจริงในบริบทของกลุ่ม ให้แยกความจำตามผู้พูดและกลุ่ม ห้ามสลับเจ้าของความสัมพันธ์ หากไม่มีข้อมูลจริงจึงค่อยถามกลับ ห้ามแต่งข้อมูลหรือราคาโดยไม่มีฐานอ้างอิง",
       input,
       reasoning: { effort: "none" },
       text: { verbosity: "low" },
