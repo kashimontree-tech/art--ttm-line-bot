@@ -101,7 +101,8 @@ async function processTextEvent(event) {
 
   let answer;
   try {
-    answer = await askOpenAI(userText, recentContext, memberContext, longTermMemory, displayName, mentionedMembers);
+    answer = directIdentityReply(userText, displayName) ||
+      await askOpenAI(userText, recentContext, memberContext, longTermMemory, displayName, mentionedMembers);
   } catch (error) {
     console.error("OpenAI processing error:", error);
     answer = "ขออภัยครับ ระบบ Art TTM มีปัญหาชั่วคราว กรุณาลองส่งข้อความอีกครั้งครับ";
@@ -311,6 +312,16 @@ async function loadLongTermMemory(scopeId) {
   return rows.reverse().map((m) =>
     `${m.display_name || "ผู้ใช้"}: ${m.memory_text || m.text_content || ""}`
   ).filter((x) => !x.endsWith(": ")).join("\n").slice(-16000);
+}
+
+function directIdentityReply(text, displayName) {
+  if (!displayName) return null;
+  const t = (text || "").trim();
+  // Identity questions must be answered from the LINE sender profile, not inferred by the model.
+  if (/(ผม|ฉัน|หนู|เรา|พี่)?\s*ชื่อ\s*(อะไร|ว่าอะไร)|ชื่อผม|ชื่อฉัน|ชื่อหนู|รู้จักผมไหม|รู้จักฉันไหม|จำผมได้ไหม|จำฉันได้ไหม/i.test(t)) {
+    return `ชื่อใน LINE ของคุณคือ ${displayName} ครับ 😊`;
+  }
+  return null;
 }
 
 function looksLikeMemory(text) {
