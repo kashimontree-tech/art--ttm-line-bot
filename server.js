@@ -330,8 +330,8 @@ function cleanEnvUrl(value) {
 
 const CLEAN_SUPABASE_URL = cleanEnvUrl(SUPABASE_URL);
 const CLEAN_SUPABASE_KEY = safeHeaderValue(process.env["SUPABASE_" + "SECRET_KEY"]).replace(/^SUPABASE_SECRET_KEY=/i, "");
-const CLEAN_LINE_TOKEN = CLEAN_LINE_TOKEN.replace(/^LINE_CHANNEL_ACCESS_TOKEN=/i, "");
-const CLEAN_OPENAI_KEY = CLEAN_OPENAI_KEY.replace(/^OPENAI_API_KEY=/i, "");
+const CLEAN_LINE_TOKEN = safeHeaderValue(process.env["LINE_" + "CHANNEL_ACCESS_TOKEN"]).replace(/^LINE_CHANNEL_ACCESS_TOKEN=/i, "");
+const CLEAN_OPENAI_KEY = safeHeaderValue(process.env["OPENAI_" + "API_KEY"]).replace(/^OPENAI_API_KEY=/i, "");
 
 async function supabaseRequest(path, options = {}) {
   const response = await fetch(`${CLEAN_SUPABASE_URL}/rest/v1/${path}`, {
