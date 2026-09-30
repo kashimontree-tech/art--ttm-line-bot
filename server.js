@@ -41,12 +41,9 @@ app.post("/webhook", express.raw({ type: "application/json" }), async (req, res)
     res.sendStatus(200);
 
     for (const event of body.events || []) {
-      if (
-        event.type === "message" &&
-        event.message?.type === "text" &&
-        event.replyToken
-      ) {
-        await processTextEvent(event);
+      if (event.type === "message" && event.replyToken) {
+        if (event.message?.type === "text") await processTextEvent(event);
+        else if (event.message?.type === "image") await processImageEvent(event);
       }
     }
   } catch (error) {
@@ -55,30 +52,81 @@ app.post("/webhook", express.raw({ type: "application/json" }), async (req, res)
   }
 });
 
+function honorificName(name) {
+  if (!name) return null;
+  return /^พี่/.test(name) ? name : `พี่${name}`;
+}
+
+async function processImageEvent(event) {
+  const source = event.source || {};
+  const userId = source.userId || null;
+  const scopeId = getScopeId(source);
+  const rawName = await getLineDisplayName(source, userId);
+  const displayName = honorificName(rawName) || "พี่";
+  try {
+    await upsertMember({ scopeId, userId, displayName: rawName, sourceType: source.type || "unknown", groupId: source.groupId || null, roomId: source.roomId || null });
+    const r = await fetch(`https://api-data.line.me/v2/bot/message/${encodeURIComponent(event.message.id)}/content`, {
+      headers: { Authorization: `Bearer ${CHANNEL_ACCESS_TOKEN}` }
+    });
+    if (!r.ok) throw new Error(`LINE content error ${r.status}: ${await r.text()}`);
+    const mime = (r.headers.get("content-type") || "image/jpeg").split(";")[0];
+    const bytes = Buffer.from(await r.arrayBuffer());
+    const dataUrl = `data:${mime};base64,${bytes.toString("base64")}`;
+    const answer = await askOpenAIImage(dataUrl, displayName);
+    await saveMessage({ lineMessageId: event.message.id || null, scopeId, userId, displayName: rawName, groupId: source.groupId || null, messageType: "image", text: "[รูปภาพ] " + answer, role: "user" });
+    await replyMessage(event.replyToken, answer);
+  } catch (e) {
+    console.error("Image processing error:", e);
+    await replyMessage(event.replyToken, `${displayName}ครับ ตอนนี้อาร์ตอ่านรูปนี้ไม่สำเร็จ กรุณาลองส่งรูปใหม่อีกครั้งครับ`);
+  }
+}
+
+async function askOpenAIImage(dataUrl, displayName) {
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${OPENAI_API_KEY}` },
+    body: JSON.stringify({
+      model: OPENAI_MODEL,
+      instructions: "คุณคือ Art TTM อ่านและวิเคราะห์รูปภาพ/เอกสารจาก LINE อย่างละเอียด ตอบภาษาไทย กระชับ ถ้าผู้ใช้ต้องการแปลงเป็น PDF ให้บอกว่าอ่านรูปได้แล้วและสรุปสิ่งที่เห็นได้ แต่ห้ามอ้างว่าส่งไฟล์ PDF สำเร็จถ้าระบบยังไม่ได้สร้างไฟล์จริง",
+      input: [{ role: "user", content: [
+        { type: "input_text", text: `${displayName} ส่งรูปนี้มา กรุณาอ่านรูปและช่วยตามเนื้อหาในภาพ` },
+        { type: "input_image", image_url: dataUrl }
+      ]}],
+      max_output_tokens: 1200
+    })
+  });
+  if (!response.ok) throw new Error(`OpenAI image error ${response.status}: ${await response.text()}`);
+  const data = await response.json();
+  const text = extractOutputText(data);
+  if (!text) throw new Error("OpenAI returned empty image response");
+  return text.slice(0, 4900);
+}
+
 async function processTextEvent(event) {
   const source = event.source || {};
   const userId = source.userId || null;
   const scopeId = getScopeId(source);
   const sourceType = source.type || "unknown";
   const userText = event.message.text;
-  const displayName = await getLineDisplayName(source, userId);
+  const rawDisplayName = await getLineDisplayName(source, userId);
+  const displayName = honorificName(rawDisplayName);
   let mentionedMembers = [];
 
   try {
     mentionedMembers = await captureMentionedMembers(event, scopeId);
     await upsertMember({
-      scopeId, userId, displayName, sourceType,
+      scopeId, userId, displayName: rawDisplayName, sourceType,
       groupId: source.groupId || null,
       roomId: source.roomId || null,
     });
     await saveMessage({
       lineMessageId: event.message.id || null,
-      scopeId, userId, displayName,
+      scopeId, userId, displayName: rawDisplayName,
       groupId: source.groupId || null,
       messageType: "text", text: userText, role: "user",
     });
     await saveLongTermMemory({
-      scopeId, userId, displayName, sourceType, source,
+      scopeId, userId, displayName: rawDisplayName, sourceType, source,
       text: userText, lineMessageId: event.message.id || null,
       mentionedMembers,
     });
@@ -319,7 +367,7 @@ function directIdentityReply(text, displayName) {
   const t = (text || "").trim();
   // Identity questions must be answered from the LINE sender profile, not inferred by the model.
   if (/(ผม|ฉัน|หนู|เรา|พี่)?\s*ชื่อ\s*(อะไร|ว่าอะไร)|ชื่อผม|ชื่อฉัน|ชื่อหนู|รู้จักผมไหม|รู้จักฉันไหม|จำผมได้ไหม|จำฉันได้ไหม/i.test(t)) {
-    return `ชื่อใน LINE ของคุณคือ ${displayName} ครับ 😊`;
+    return `ชื่อใน LINE ของคุณคือ ${honorificName(displayName)} ครับ 😊`;
   }
   return null;
 }
@@ -388,7 +436,7 @@ async function askOpenAI(userText, recentContext, memberContext, longTermMemory,
     body: JSON.stringify({
       model: OPENAI_MODEL,
       instructions:
-        "คุณคือ Art TTM ผู้ช่วย AI ของทีม TTM HOME DESIGN & BUILD-IN ตอบภาษาไทยเป็นหลัก สุภาพ กระชับ ชัดเจน ผู้ส่งข้อความล่าสุดจะถูกระบุชื่อ LINE ให้ชัดเจนใน input: ให้ถือชื่อนั้นเป็นตัวตนของคนที่กำลังคุยด้วยเสมอ ใช้ข้อมูลสมาชิก ความจำระยะยาว และบทสนทนาล่าสุดจาก Supabase เป็นข้อเท็จจริงเมื่อเกี่ยวข้อง โดยเฉพาะบรรทัด 'ข้อเท็จจริงความสัมพันธ์' ถ้าความจำระบุว่า 'จูน เป็นแฟนของ Benz' แล้ว Benz ถามว่าแฟนพี่ชื่ออะไร ต้องตอบ 'จูน' ทันที ถ้าจูนถามว่าฉันเป็นอะไรกับ Benz ให้ตอบว่าเป็นแฟนของ Benz ห้ามขอข้อมูลซ้ำเมื่อความจำมีคำตอบแล้ว ชื่อจาก LINE member profile และชื่อ @mention เป็นชื่อจริงในบริบทของกลุ่ม ให้แยกความจำตามผู้พูดและกลุ่ม ห้ามสลับเจ้าของความสัมพันธ์ หากไม่มีข้อมูลจริงจึงค่อยถามกลับ ห้ามแต่งข้อมูลหรือราคาโดยไม่มีฐานอ้างอิง",
+        "คุณคือ Art TTM ผู้ช่วย AI ของทีม TTM HOME DESIGN & BUILD-IN ตอบภาษาไทยเป็นหลัก สุภาพ กระชับ ชัดเจน ให้เรียกสมาชิก LINE ทุกคนโดยเติมคำว่า 'พี่' นำหน้าชื่อเสมอ (ถ้าชื่อมีคำว่าพี่อยู่แล้วไม่ต้องเติมซ้ำ) ผู้ส่งข้อความล่าสุดจะถูกระบุชื่อ LINE ให้ชัดเจนใน input: ให้ถือชื่อนั้นเป็นตัวตนของคนที่กำลังคุยด้วยเสมอ ใช้ข้อมูลสมาชิก ความจำระยะยาว และบทสนทนาล่าสุดจาก Supabase เป็นข้อเท็จจริงเมื่อเกี่ยวข้อง โดยเฉพาะบรรทัด 'ข้อเท็จจริงความสัมพันธ์' ถ้าความจำระบุว่า 'จูน เป็นแฟนของ Benz' แล้ว Benz ถามว่าแฟนพี่ชื่ออะไร ต้องตอบ 'จูน' ทันที ถ้าจูนถามว่าฉันเป็นอะไรกับ Benz ให้ตอบว่าเป็นแฟนของ Benz ห้ามขอข้อมูลซ้ำเมื่อความจำมีคำตอบแล้ว ชื่อจาก LINE member profile และชื่อ @mention เป็นชื่อจริงในบริบทของกลุ่ม ให้แยกความจำตามผู้พูดและกลุ่ม ห้ามสลับเจ้าของความสัมพันธ์ หากไม่มีข้อมูลจริงจึงค่อยถามกลับ ห้ามแต่งข้อมูลหรือราคาโดยไม่มีฐานอ้างอิง",
       input,
       reasoning: { effort: "none" },
       text: { verbosity: "low" },
