@@ -41,12 +41,12 @@ app.post("/webhook", express.raw({ type: "application/json" }), async (req, res)
     res.sendStatus(200);
 
     for (const event of body.events || []) {
-      if (
-        event.type === "message" &&
-        event.message?.type === "text" &&
-        event.replyToken
-      ) {
-        await processTextEvent(event);
+      if (event.type === "message" && event.replyToken) {
+        if (event.message?.type === "text") {
+          await processTextEvent(event);
+        } else {
+          await processNonTextEvent(event);
+        }
       }
     }
   } catch (error) {
@@ -65,6 +65,9 @@ async function processTextEvent(event) {
   let mentionedMembers = [];
 
   try {
+    if (source.type === "group" && source.groupId) {
+      await syncGroupMembers(source, scopeId);
+    }
     mentionedMembers = await captureMentionedMembers(event, scopeId);
     await upsertMember({
       scopeId, userId, displayName, sourceType,
@@ -78,6 +81,11 @@ async function processTextEvent(event) {
       messageType: "text", text: userText, role: "user",
     });
     await saveLongTermMemory({
+      scopeId, userId, displayName, sourceType, source,
+      text: userText, lineMessageId: event.message.id || null,
+      mentionedMembers,
+    });
+    await learnRelationshipFromText({
       scopeId, userId, displayName, sourceType, source,
       text: userText, lineMessageId: event.message.id || null,
       mentionedMembers,
@@ -121,6 +129,90 @@ async function processTextEvent(event) {
   } catch (error) {
     console.error("LINE reply error:", error);
   }
+}
+
+async function processNonTextEvent(event) {
+  const source = event.source || {};
+  const userId = source.userId || null;
+  const scopeId = getScopeId(source);
+  const displayName = await getLineDisplayName(source, userId);
+  const type = event.message?.type || "unknown";
+  const fileName = event.message?.fileName || null;
+
+  try {
+    if (source.type === "group" && source.groupId) await syncGroupMembers(source, scopeId);
+    await upsertMember({
+      scopeId, userId, displayName, sourceType: source.type || "unknown",
+      groupId: source.groupId || null, roomId: source.roomId || null,
+    });
+    await saveMessage({
+      lineMessageId: event.message?.id || null, scopeId, userId, displayName,
+      groupId: source.groupId || null, messageType: type,
+      text: fileName ? `[ไฟล์: ${fileName}]` : `[${type}]`, role: "user",
+    });
+  } catch (error) {
+    console.error("Non-text persistence error:", error);
+  }
+
+  const reply = type === "file"
+    ? `รับไฟล์ ${fileName || ""} แล้วครับ ผมบันทึกว่าไฟล์นี้ถูกส่งในห้องนี้แล้วครับ`
+    : "รับข้อมูลแล้วครับ และบันทึกไว้ในประวัติห้องนี้แล้วครับ";
+  try { await replyMessage(event.replyToken, reply); } catch (error) { console.error("LINE reply error:", error); }
+}
+
+async function syncGroupMembers(source, scopeId) {
+  if (!source.groupId) return;
+  let start = null;
+  let count = 0;
+  do {
+    const suffix = start ? `?start=${encodeURIComponent(start)}` : "";
+    const response = await fetch(
+      `https://api.line.me/v2/bot/group/${encodeURIComponent(source.groupId)}/members/ids${suffix}`,
+      { headers: { Authorization: `Bearer ${CHANNEL_ACCESS_TOKEN}` } }
+    );
+    if (!response.ok) {
+      console.error("LINE group member IDs error:", response.status, await response.text());
+      return;
+    }
+    const data = await response.json();
+    for (const memberId of data.memberIds || []) {
+      const name = await getLineDisplayName(source, memberId);
+      if (name) {
+        await upsertMember({
+          scopeId, userId: memberId, displayName: name, sourceType: "group",
+          groupId: source.groupId, roomId: null,
+        });
+      }
+      count += 1;
+      if (count >= 100) return;
+    }
+    start = data.next || null;
+  } while (start);
+}
+
+async function learnRelationshipFromText({ scopeId, userId, displayName, sourceType, source, text, lineMessageId, mentionedMembers = [] }) {
+  const relationshipWords = /(แฟน|สามี|ภรรยา|พ่อ|แม่|ลูก|พี่|น้อง|เพื่อน|หัวหน้า|ลูกน้อง|หุ้นส่วน|เจ้าของ|ผู้จัดการ|ช่าง|วิศวกร)/i;
+  if (!relationshipWords.test(text || "")) return;
+
+  const names = mentionedMembers.map((m) => m.displayName).filter(Boolean);
+  const normalized = [
+    `ผู้พูดข้อความนี้มีชื่อ LINE ว่า "${displayName || "ไม่ทราบชื่อ"}"`,
+    names.length ? `บุคคลที่ถูก @mention มีชื่อ LINE ว่า "${names.join(", ")}"` : "",
+    `ข้อความเกี่ยวกับความสัมพันธ์: ${text}`,
+  ].filter(Boolean).join("\n");
+
+  await supabaseRequest("line_memories", {
+    method: "POST",
+    prefer: "return=minimal",
+    body: JSON.stringify([{
+      line_message_id: lineMessageId, line_user_id: userId, user_id: userId,
+      display_name: displayName, source_type: sourceType,
+      group_id: source.groupId || null, room_id: source.roomId || null,
+      message_type: "relationship", text_content: text, memory_text: normalized,
+      scope_id: scopeId,
+      metadata: { source: "line", kind: "relationship", saved_by: "art-ttm-memory-v3" }
+    }])
+  });
 }
 
 function getScopeId(source) {
@@ -362,7 +454,7 @@ async function askOpenAI(userText, recentContext, memberContext, longTermMemory)
     body: JSON.stringify({
       model: OPENAI_MODEL,
       instructions:
-        "คุณคือ Art TTM ผู้ช่วย AI ของทีม TTM HOME DESIGN & BUILD-IN ตอบภาษาไทยเป็นหลัก สุภาพ กระชับ ชัดเจน ช่วยงานก่อสร้าง ออกแบบ BOQ ต้นทุน งานระบบ และงานทั่วไปของทีม ใช้ข้อมูลสมาชิก ความจำระยะยาว และบทสนทนาล่าสุดเป็นบริบทเมื่อเกี่ยวข้อง ชื่อจาก LINE member profile และชื่อของคนที่ถูก @mention ถือเป็นชื่อใน LINE ของบุคคลนั้น ถ้าผู้ใช้บอกความสัมพันธ์พร้อม @mention ให้จำและตอบชื่อ LINE จริงของคนที่ถูก mention เมื่อถูกถามภายหลัง ถ้ามีข้อมูลชื่อหรือความสัมพันธ์ในบริบทให้ตอบตามข้อมูลนั้นโดยไม่เดา หากข้อมูลไม่พอให้ถามกลับ และห้ามแต่งข้อมูลหรือราคาโดยไม่มีฐานอ้างอิง",
+        "คุณคือ Art TTM ผู้ช่วย AI ของทีม TTM HOME DESIGN & BUILD-IN ตอบภาษาไทยเป็นหลัก สุภาพ กระชับ ชัดเจน ช่วยงานก่อสร้าง ออกแบบ BOQ ต้นทุน งานระบบ และงานทั่วไปของทีม สมาชิกแต่ละคนใน LINE group มีตัวตนตาม display_name ที่ระบบส่งมา ให้รู้ว่าข้อความที่มีชื่อผู้พูดในบทสนทนาคือข้อความของคนนั้นจริง ใช้ข้อมูลสมาชิก ความจำระยะยาว และบทสนทนาล่าสุดร่วมกัน หากความจำระบุความสัมพันธ์ เช่น จูนเป็นแฟนเบนซ์ ให้ตอบความสัมพันธ์นั้นได้ไม่ว่าใครในกลุ่มเป็นคนถาม ถ้าคนที่กำลังพูดมีชื่อ LINE ว่าจูน ให้เข้าใจว่าเขาคือจูน ไม่ต้องถามว่าจูนหมายถึงใคร ชื่อจาก LINE member profile และ @mention มีความน่าเชื่อถือสูงกว่าการเดาชื่อจากข้อความ ห้ามปฏิเสธว่าระบุตัวบุคคลไม่ได้เมื่อระบบมี display_name/user mapping อยู่แล้ว หากข้อมูลจริงไม่มีจึงค่อยบอกว่าไม่ทราบ และห้ามแต่งข้อมูลหรือราคาโดยไม่มีฐานอ้างอิง",
       input,
       reasoning: { effort: "none" },
       text: { verbosity: "low" },
