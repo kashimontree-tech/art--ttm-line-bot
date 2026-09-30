@@ -329,7 +329,7 @@ function cleanEnvUrl(value) {
 }
 
 const CLEAN_SUPABASE_URL = cleanEnvUrl(SUPABASE_URL);
-const CLEAN_SUPABASE_KEY = CLEAN_SUPABASE_KEY.replace(/^SUPABASE_SECRET_KEY=/i, "");
+const CLEAN_SUPABASE_KEY = safeHeaderValue(process.env["SUPABASE_" + "SECRET_KEY"]).replace(/^SUPABASE_SECRET_KEY=/i, "");
 const CLEAN_LINE_TOKEN = CLEAN_LINE_TOKEN.replace(/^LINE_CHANNEL_ACCESS_TOKEN=/i, "");
 const CLEAN_OPENAI_KEY = CLEAN_OPENAI_KEY.replace(/^OPENAI_API_KEY=/i, "");
 
