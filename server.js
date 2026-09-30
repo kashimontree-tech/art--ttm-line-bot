@@ -334,7 +334,9 @@ function cleanEnvUrl(value) {
   }
 }
 
-const CLEAN_SUPABASE_URL = cleanEnvUrl(SUPABASE_URL);
+// Use the verified project host. This avoids malformed copied SUPABASE_URL values in Render.
+const SUPABASE_PROJECT_HOST = "mmsspzwobyrojzqdiyhn.supabase.co";
+const CLEAN_SUPABASE_URL = `https://${SUPABASE_PROJECT_HOST}`;
 const CLEAN_SUPABASE_KEY = safeHeaderValue(process.env["SUPABASE_" + "SECRET_KEY"]).replace(/^SUPABASE_SECRET_KEY=/i, "");
 const CLEAN_LINE_TOKEN = safeHeaderValue(process.env["LINE_" + "CHANNEL_ACCESS_TOKEN"]).replace(/^LINE_CHANNEL_ACCESS_TOKEN=/i, "");
 const CLEAN_OPENAI_KEY = safeHeaderValue(process.env["OPENAI_" + "API_KEY"]).replace(/^OPENAI_API_KEY=/i, "");
