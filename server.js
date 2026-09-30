@@ -62,8 +62,10 @@ async function processTextEvent(event) {
   const sourceType = source.type || "unknown";
   const userText = event.message.text;
   const displayName = await getLineDisplayName(source, userId);
+  let mentionedMembers = [];
 
   try {
+    mentionedMembers = await captureMentionedMembers(event, scopeId);
     await upsertMember({
       scopeId, userId, displayName, sourceType,
       groupId: source.groupId || null,
@@ -78,6 +80,7 @@ async function processTextEvent(event) {
     await saveLongTermMemory({
       scopeId, userId, displayName, sourceType, source,
       text: userText, lineMessageId: event.message.id || null,
+      mentionedMembers,
     });
   } catch (error) {
     console.error("Supabase write error:", error);
@@ -127,19 +130,51 @@ function getScopeId(source) {
   return "unknown";
 }
 
-async function getLineDisplayName(userId) {
+async function getLineDisplayName(source, userId) {
   if (!userId) return null;
   try {
-    const response = await fetch(
-      `https://api.line.me/v2/bot/profile/${encodeURIComponent(userId)}`,
-      { headers: { Authorization: `Bearer ${CHANNEL_ACCESS_TOKEN}` } }
-    );
-    if (!response.ok) return null;
+    let url;
+    if (source.type === "group" && source.groupId) {
+      url = `https://api.line.me/v2/bot/group/${encodeURIComponent(source.groupId)}/member/${encodeURIComponent(userId)}`;
+    } else if (source.type === "room" && source.roomId) {
+      url = `https://api.line.me/v2/bot/room/${encodeURIComponent(source.roomId)}/member/${encodeURIComponent(userId)}`;
+    } else {
+      url = `https://api.line.me/v2/bot/profile/${encodeURIComponent(userId)}`;
+    }
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${CHANNEL_ACCESS_TOKEN}` },
+    });
+    if (!response.ok) {
+      console.error("LINE member profile error:", response.status, await response.text());
+      return null;
+    }
     const data = await response.json();
     return data.displayName || null;
-  } catch {
+  } catch (error) {
+    console.error("LINE member profile exception:", error);
     return null;
   }
+}
+
+async function captureMentionedMembers(event, scopeId) {
+  const source = event.source || {};
+  const mentionees = event.message?.mention?.mentionees || [];
+  const captured = [];
+  for (const mention of mentionees) {
+    if (mention.type !== "user" || !mention.userId) continue;
+    const name = await getLineDisplayName(source, mention.userId);
+    if (!name) continue;
+    await upsertMember({
+      scopeId,
+      userId: mention.userId,
+      displayName: name,
+      sourceType: source.type || "unknown",
+      groupId: source.groupId || null,
+      roomId: source.roomId || null,
+    });
+    captured.push({ userId: mention.userId, displayName: name });
+  }
+  return captured;
 }
 
 function supabaseHeaders(prefer) {
@@ -282,8 +317,12 @@ function looksLikeMemory(text) {
   return /(จำไว้|จำว่า|ชื่อ.*คือ|เรียกว่า|เป็นแฟน|เป็นภรรยา|เป็นสามี|เป็นลูก|เป็นพี่|เป็นน้อง|ตำแหน่ง|โปรเจกต์.*ชื่อ|โครงการ.*ชื่อ)/i.test(text || "");
 }
 
-async function saveLongTermMemory({ scopeId, userId, displayName, sourceType, source, text, lineMessageId }) {
+async function saveLongTermMemory({ scopeId, userId, displayName, sourceType, source, text, lineMessageId, mentionedMembers = [] }) {
   if (!looksLikeMemory(text)) return;
+  const mentionedNames = mentionedMembers.map((m) => m.displayName).filter(Boolean);
+  const normalizedMemory = mentionedNames.length
+    ? `${text}\nบุคคลที่ถูก @mention ในข้อความนี้มีชื่อ LINE จริง: ${mentionedNames.join(", ")}`
+    : text;
   await supabaseRequest("line_memories", {
     method: "POST",
     prefer: "return=minimal",
@@ -297,7 +336,7 @@ async function saveLongTermMemory({ scopeId, userId, displayName, sourceType, so
       room_id: source.roomId || null,
       message_type: "text",
       text_content: text,
-      memory_text: text,
+      memory_text: normalizedMemory,
       scope_id: scopeId,
       metadata: { source: "line", saved_by: "art-ttm-memory-v2" }
     }])
@@ -323,7 +362,7 @@ async function askOpenAI(userText, recentContext, memberContext, longTermMemory)
     body: JSON.stringify({
       model: OPENAI_MODEL,
       instructions:
-        "คุณคือ Art TTM ผู้ช่วย AI ของทีม TTM HOME DESIGN & BUILD-IN ตอบภาษาไทยเป็นหลัก สุภาพ กระชับ ชัดเจน ช่วยงานก่อสร้าง ออกแบบ BOQ ต้นทุน งานระบบ และงานทั่วไปของทีม ใช้ข้อมูลสมาชิก ความจำระยะยาว และบทสนทนาล่าสุดเป็นบริบทเมื่อเกี่ยวข้อง ถ้ามีข้อมูลชื่อหรือความสัมพันธ์ในบริบทให้ตอบตามข้อมูลนั้นโดยไม่เดา หากข้อมูลไม่พอให้ถามกลับ และห้ามแต่งข้อมูลหรือราคาโดยไม่มีฐานอ้างอิง",
+        "คุณคือ Art TTM ผู้ช่วย AI ของทีม TTM HOME DESIGN & BUILD-IN ตอบภาษาไทยเป็นหลัก สุภาพ กระชับ ชัดเจน ช่วยงานก่อสร้าง ออกแบบ BOQ ต้นทุน งานระบบ และงานทั่วไปของทีม ใช้ข้อมูลสมาชิก ความจำระยะยาว และบทสนทนาล่าสุดเป็นบริบทเมื่อเกี่ยวข้อง ชื่อจาก LINE member profile และชื่อของคนที่ถูก @mention ถือเป็นชื่อใน LINE ของบุคคลนั้น ถ้าผู้ใช้บอกความสัมพันธ์พร้อม @mention ให้จำและตอบชื่อ LINE จริงของคนที่ถูก mention เมื่อถูกถามภายหลัง ถ้ามีข้อมูลชื่อหรือความสัมพันธ์ในบริบทให้ตอบตามข้อมูลนั้นโดยไม่เดา หากข้อมูลไม่พอให้ถามกลับ และห้ามแต่งข้อมูลหรือราคาโดยไม่มีฐานอ้างอิง",
       input,
       reasoning: { effort: "none" },
       text: { verbosity: "low" },
