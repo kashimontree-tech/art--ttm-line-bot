@@ -61,7 +61,7 @@ async function processTextEvent(event) {
   const scopeId = getScopeId(source);
   const sourceType = source.type || "unknown";
   const userText = event.message.text;
-  const displayName = await getLineDisplayName(userId);
+  const displayName = await getLineDisplayName(source, userId);
 
   try {
     await upsertMember({
@@ -98,7 +98,7 @@ async function processTextEvent(event) {
 
   let answer;
   try {
-    answer = await askOpenAI(userText, recentContext);
+    answer = await askOpenAI(userText, recentContext, memberContext, longTermMemory);
   } catch (error) {
     console.error("OpenAI processing error:", error);
     answer =
@@ -263,7 +263,56 @@ async function loadRecentContext(scopeId) {
     .slice(-12000);
 }
 
-async function askOpenAI(userText, recentContext) {
+async function loadMemberContext(scopeId) {
+  const rows = (await supabaseRequest(
+    "line_members?select=line_user_id,display_name,ttm_name,role,role_name,department,notes" +
+      `&scope_id=eq.${encodeURIComponent(scopeId)}&order=last_seen_at.desc&limit=50`,
+    { method: "GET" }
+  )) || [];
+  return rows.map((m) =>
+    [m.display_name, m.ttm_name, m.role_name || m.role, m.department, m.notes]
+      .filter(Boolean).join(" | ")
+  ).filter(Boolean).join("\n");
+}
+
+async function loadLongTermMemory(scopeId) {
+  const rows = (await supabaseRequest(
+    "line_memories?select=display_name,memory_text,text_content,created_at" +
+      `&scope_id=eq.${encodeURIComponent(scopeId)}&order=created_at.desc&limit=50`,
+    { method: "GET" }
+  )) || [];
+  return rows.reverse().map((m) =>
+    `${m.display_name || "ผู้ใช้"}: ${m.memory_text || m.text_content || ""}`
+  ).filter((x) => !x.endsWith(": ")).join("\n").slice(-16000);
+}
+
+function looksLikeMemory(text) {
+  return /(จำไว้|จำว่า|ชื่อ.*คือ|เรียกว่า|เป็นแฟน|เป็นภรรยา|เป็นสามี|เป็นลูก|เป็นพี่|เป็นน้อง|ตำแหน่ง|โปรเจกต์.*ชื่อ|โครงการ.*ชื่อ)/i.test(text || "");
+}
+
+async function saveLongTermMemory({ scopeId, userId, displayName, sourceType, source, text, lineMessageId }) {
+  if (!looksLikeMemory(text)) return;
+  await supabaseRequest("line_memories", {
+    method: "POST",
+    prefer: "return=minimal",
+    body: JSON.stringify([{
+      line_message_id: lineMessageId,
+      line_user_id: userId,
+      user_id: userId,
+      display_name: displayName,
+      source_type: sourceType,
+      group_id: source.groupId || null,
+      room_id: source.roomId || null,
+      message_type: "text",
+      text_content: text,
+      memory_text: text,
+      scope_id: scopeId,
+      metadata: { source: "line", saved_by: "art-ttm-memory-v2" }
+    }])
+  });
+}
+
+async function askOpenAI(userText, recentContext, memberContext, longTermMemory) {
   if (!OPENAI_API_KEY) throw new Error("Missing OPENAI_API_KEY");
 
   const input = recentContext
@@ -279,7 +328,7 @@ async function askOpenAI(userText, recentContext) {
     body: JSON.stringify({
       model: OPENAI_MODEL,
       instructions:
-        "คุณคือ Art TTM ผู้ช่วย AI ของทีม TTM HOME DESIGN & BUILD-IN ตอบภาษาไทยเป็นหลัก สุภาพ กระชับ ชัดเจน ช่วยงานก่อสร้าง ออกแบบ BOQ ต้นทุน งานระบบ และงานทั่วไปของทีม ใช้บทสนทนาล่าสุดเป็นบริบทเมื่อเกี่ยวข้อง หากข้อมูลไม่พอให้ถามกลับ และห้ามแต่งข้อมูลหรือราคาโดยไม่มีฐานอ้างอิง",
+        "คุณคือ Art TTM ผู้ช่วย AI ของทีม TTM HOME DESIGN & BUILD-IN ตอบภาษาไทยเป็นหลัก สุภาพ กระชับ ชัดเจน ช่วยงานก่อสร้าง ออกแบบ BOQ ต้นทุน งานระบบ และงานทั่วไปของทีม ใช้ข้อมูลสมาชิก ความจำระยะยาว และบทสนทนาล่าสุดเป็นบริบทเมื่อเกี่ยวข้อง ถ้ามีข้อมูลชื่อหรือความสัมพันธ์ในบริบทให้ตอบตามข้อมูลนั้นโดยไม่เดา หากข้อมูลไม่พอให้ถามกลับ และห้ามแต่งข้อมูลหรือราคาโดยไม่มีฐานอ้างอิง",
       input,
       reasoning: { effort: "none" },
       text: { verbosity: "low" },
