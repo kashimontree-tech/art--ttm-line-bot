@@ -60,7 +60,7 @@ function honorificName(name) {
 
 async function downloadLineContent(messageId) {
   const r = await fetch(`https://api-data.line.me/v2/bot/message/${encodeURIComponent(messageId)}/content`, {
-    headers: { Authorization: `Bearer ${CHANNEL_ACCESS_TOKEN}` }
+    headers: { Authorization: `Bearer ${safeHeaderValue(CHANNEL_ACCESS_TOKEN)}` }
   });
   if (!r.ok) throw new Error(`LINE content error ${r.status}: ${await r.text()}`);
   return {
@@ -75,7 +75,7 @@ async function uploadOpenAIFile(bytes, fileName, mime) {
   fd.append("file", new Blob([bytes], { type: mime || "application/octet-stream" }), fileName || "document");
   const r = await fetch("https://api.openai.com/v1/files", {
     method: "POST",
-    headers: { Authorization: `Bearer ${OPENAI_API_KEY}` },
+    headers: { Authorization: `Bearer ${safeHeaderValue(OPENAI_API_KEY)}` },
     body: fd
   });
   if (!r.ok) throw new Error(`OpenAI file upload error ${r.status}: ${await r.text()}`);
@@ -94,7 +94,7 @@ async function processFileEvent(event) {
     const uploaded = await uploadOpenAIFile(bytes, fileName, mime);
     const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${OPENAI_API_KEY}` },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${safeHeaderValue(OPENAI_API_KEY)}` },
       body: JSON.stringify({
         model: process.env.OPENAI_FILE_MODEL || "gpt-5.4",
         instructions: "คุณคือ Art TTM อ่านไฟล์เอกสารจาก LINE เช่น PDF, Excel, Word และสรุปข้อมูลจริงจากไฟล์ ห้ามอ้างว่าอ่านหรือบันทึกสำเร็จถ้ายังไม่ได้ทำจริง",
@@ -155,7 +155,7 @@ async function processImageEvent(event) {
 async function askOpenAIImage(dataUrl, displayName) {
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${OPENAI_API_KEY}` },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${safeHeaderValue(OPENAI_API_KEY)}` },
     body: JSON.stringify({
       model: process.env.OPENAI_VISION_MODEL || "gpt-5.4",
       instructions: "คุณคือ Art TTM อ่านและวิเคราะห์รูปภาพ/เอกสารจาก LINE อย่างละเอียด ตอบภาษาไทย กระชับ ถ้าผู้ใช้ต้องการแปลงเป็น PDF ให้บอกว่าอ่านรูปได้แล้วและสรุปสิ่งที่เห็นได้ แต่ห้ามอ้างว่าส่งไฟล์ PDF สำเร็จถ้าระบบยังไม่ได้สร้างไฟล์จริง",
@@ -263,7 +263,7 @@ async function getLineDisplayName(source, userId) {
       url = `https://api.line.me/v2/bot/profile/${encodeURIComponent(userId)}`;
     }
     const response = await fetch(url, {
-      headers: { Authorization: `Bearer ${CHANNEL_ACCESS_TOKEN}` },
+      headers: { Authorization: `Bearer ${safeHeaderValue(CHANNEL_ACCESS_TOKEN)}` },
     });
     if (!response.ok) {
       console.error("LINE member profile error:", response.status, await response.text());
@@ -303,16 +303,20 @@ function supabaseHeaders(prefer) {
     throw new Error("Missing Supabase environment variables");
   }
   const headers = {
-    apikey: SUPABASE_SECRET_KEY,
-    Authorization: `Bearer ${SUPABASE_SECRET_KEY}`,
+    apikey: safeHeaderValue(SUPABASE_SECRET_KEY),
+    Authorization: `Bearer ${safeHeaderValue(SUPABASE_SECRET_KEY)}`,
     "Content-Type": "application/json",
   };
   if (prefer) headers.Prefer = prefer;
   return headers;
 }
 
+function safeHeaderValue(value) {
+  return String(value || "").trim().replace(/^["']|["']$/g, "");
+}
+
 async function supabaseRequest(path, options = {}) {
-  const response = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+  const response = await fetch(`${safeHeaderValue(SUPABASE_URL)}/rest/v1/${path}`, {
     ...options,
     headers: {
       ...supabaseHeaders(options.prefer),
@@ -515,7 +519,7 @@ async function askOpenAI(userText, recentContext, memberContext, longTermMemory,
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${OPENAI_API_KEY}`,
+      Authorization: `Bearer ${safeHeaderValue(OPENAI_API_KEY)}`,
     },
     body: JSON.stringify({
       model: OPENAI_MODEL,
@@ -566,7 +570,7 @@ async function replyMessage(replyToken, text) {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${CHANNEL_ACCESS_TOKEN}`,
+      Authorization: `Bearer ${safeHeaderValue(CHANNEL_ACCESS_TOKEN)}`,
     },
     body: JSON.stringify({
       replyToken,
