@@ -6,7 +6,7 @@ const app = express();
 const CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET;
 const CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-5.6-luna";
+const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-6-luna";
 
 app.get("/", (req, res) => {
   res.status(200).send("Art TTM LINE Bot is running");
@@ -40,7 +40,7 @@ app.post(
 
       const body = JSON.parse(req.body.toString("utf8"));
 
-      // LINE expects a fast 200 response. Process events after acknowledging.
+      // Acknowledge LINE quickly, then process the event on the Render service.
       res.sendStatus(200);
 
       for (const event of body.events || []) {
@@ -49,15 +49,21 @@ app.post(
           event.message?.type === "text" &&
           event.replyToken
         ) {
+          let answer;
+
           try {
-            const answer = await askOpenAI(event.message.text);
+            answer = await askOpenAI(event.message.text);
+          } catch (error) {
+            console.error("OpenAI processing error:", error);
+            answer =
+              "ขออภัยครับ ระบบ Art TTM มีปัญหาชั่วคราว กรุณาลองส่งข้อความอีกครั้งครับ";
+          }
+
+          try {
             await replyMessage(event.replyToken, answer);
           } catch (error) {
-            console.error("Event processing error:", error);
-            await replyMessage(
-              event.replyToken,
-              "ขออภัยครับ ระบบ Art TTM มีปัญหาชั่วคราว กรุณาลองส่งข้อความอีกครั้งครับ"
-            );
+            // Do not retry the same LINE reply token.
+            console.error("LINE reply error:", error);
           }
         }
       }
@@ -89,11 +95,13 @@ async function askOpenAI(userText) {
   });
 
   if (!response.ok) {
-    throw new Error(`OpenAI API error ${response.status}: ${await response.text()}`);
+    throw new Error(
+      `OpenAI API error ${response.status}: ${await response.text()}`
+    );
   }
 
   const data = await response.json();
-  const text = data.output_text?.trim();
+  const text = extractOutputText(data);
 
   if (!text) {
     throw new Error("OpenAI returned an empty response");
@@ -101,6 +109,29 @@ async function askOpenAI(userText) {
 
   // LINE text messages have a maximum length. Keep a safe margin.
   return text.slice(0, 4900);
+}
+
+function extractOutputText(data) {
+  if (typeof data.output_text === "string" && data.output_text.trim()) {
+    return data.output_text.trim();
+  }
+
+  const parts = [];
+  for (const item of data.output || []) {
+    if (item.type !== "message") continue;
+
+    for (const content of item.content || []) {
+      if (
+        content.type === "output_text" &&
+        typeof content.text === "string" &&
+        content.text.trim()
+      ) {
+        parts.push(content.text.trim());
+      }
+    }
+  }
+
+  return parts.join("\n").trim();
 }
 
 async function replyMessage(replyToken, text) {
@@ -117,7 +148,9 @@ async function replyMessage(replyToken, text) {
   });
 
   if (!response.ok) {
-    throw new Error(`LINE reply error ${response.status}: ${await response.text()}`);
+    throw new Error(
+      `LINE reply error ${response.status}: ${await response.text()}`
+    );
   }
 }
 
