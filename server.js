@@ -101,7 +101,7 @@ async function processTextEvent(event) {
 
   let answer;
   try {
-    answer = await askOpenAI(userText, recentContext, memberContext, longTermMemory);
+    answer = await askOpenAI(userText, recentContext, memberContext, longTermMemory, displayName, mentionedMembers);
   } catch (error) {
     console.error("OpenAI processing error:", error);
     answer = "ขออภัยครับ ระบบ Art TTM มีปัญหาชั่วคราว กรุณาลองส่งข้อความอีกครั้งครับ";
@@ -343,7 +343,7 @@ async function saveLongTermMemory({ scopeId, userId, displayName, sourceType, so
   });
 }
 
-async function askOpenAI(userText, recentContext, memberContext, longTermMemory) {
+async function askOpenAI(userText, recentContext, memberContext, longTermMemory, currentDisplayName, mentionedMembers = []) {
   if (!OPENAI_API_KEY) throw new Error("Missing OPENAI_API_KEY");
 
   const input = [
@@ -362,7 +362,7 @@ async function askOpenAI(userText, recentContext, memberContext, longTermMemory)
     body: JSON.stringify({
       model: OPENAI_MODEL,
       instructions:
-        "คุณคือ Art TTM ผู้ช่วย AI ของทีม TTM HOME DESIGN & BUILD-IN ตอบภาษาไทยเป็นหลัก สุภาพ กระชับ ชัดเจน ช่วยงานก่อสร้าง ออกแบบ BOQ ต้นทุน งานระบบ และงานทั่วไปของทีม ใช้ข้อมูลสมาชิก ความจำระยะยาว และบทสนทนาล่าสุดเป็นบริบทเมื่อเกี่ยวข้อง ชื่อจาก LINE member profile และชื่อของคนที่ถูก @mention ถือเป็นชื่อใน LINE ของบุคคลนั้น ถ้าผู้ใช้บอกความสัมพันธ์พร้อม @mention ให้จำและตอบชื่อ LINE จริงของคนที่ถูก mention เมื่อถูกถามภายหลัง ถ้ามีข้อมูลชื่อหรือความสัมพันธ์ในบริบทให้ตอบตามข้อมูลนั้นโดยไม่เดา หากข้อมูลไม่พอให้ถามกลับ และห้ามแต่งข้อมูลหรือราคาโดยไม่มีฐานอ้างอิง",
+        "คุณคือ Art TTM ผู้ช่วย AI ของทีม TTM HOME DESIGN & BUILD-IN ตอบภาษาไทยเป็นหลัก สุภาพ กระชับ ชัดเจน ช่วยงานก่อสร้าง ออกแบบ BOQ ต้นทุน งานระบบ และงานทั่วไปของทีม ใช้ข้อมูลสมาชิก ความจำระยะยาว และบทสนทนาล่าสุดเป็นบริบทเมื่อเกี่ยวข้อง ชื่อจาก LINE member profile และชื่อของคนที่ถูก @mention ถือเป็นชื่อใน LINE ของบุคคลนั้น ต้องรู้ว่าใครเป็นคนส่งข้อความล่าสุดจากชื่อ LINE ที่ให้มา และตอบกับคนนั้นให้ถูกคน ถ้าผู้ใช้บอกความสัมพันธ์พร้อม @mention เช่น แฟน ภรรยา สามี ลูก พี่ น้อง หรือเพื่อน ให้ผูกความสัมพันธ์นั้นกับผู้พูดและชื่อ LINE จริงของคนที่ถูก mention แล้วใช้ตอบในครั้งถัดไป เช่น ถ้าผู้พูดบอกว่า @จูน เป็นแฟน แล้วผู้พูดคนเดิมถามว่าแฟนพี่ชื่ออะไร ให้ตอบว่าจูน ถ้าสมาชิกคนอื่นถาม ให้แยกความสัมพันธ์ตามผู้พูด ห้ามสลับเจ้าของความสัมพันธ์ ถ้ามีข้อมูลชื่อหรือความสัมพันธ์ในบริบทให้ตอบตามข้อมูลนั้นโดยไม่เดา หากข้อมูลไม่พอให้ถามกลับ และห้ามแต่งข้อมูลหรือราคาโดยไม่มีฐานอ้างอิง",
       input,
       reasoning: { effort: "none" },
       text: { verbosity: "low" },
