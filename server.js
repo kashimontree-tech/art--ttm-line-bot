@@ -96,7 +96,7 @@ async function processFileEvent(event) {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${OPENAI_API_KEY}` },
       body: JSON.stringify({
-        model: OPENAI_MODEL,
+        model: process.env.OPENAI_FILE_MODEL || "gpt-5.4",
         instructions: "คุณคือ Art TTM อ่านไฟล์เอกสารจาก LINE เช่น PDF, Excel, Word และสรุปข้อมูลจริงจากไฟล์ ห้ามอ้างว่าอ่านหรือบันทึกสำเร็จถ้ายังไม่ได้ทำจริง",
         input: [{ role: "user", content: [
           { type: "input_file", file_id: uploaded.id },
@@ -141,6 +141,7 @@ async function processImageEvent(event) {
   try {
     await upsertMember({ scopeId, userId, displayName: rawName, sourceType: source.type || "unknown", groupId: source.groupId || null, roomId: source.roomId || null });
     const { bytes, mime } = await downloadLineContent(event.message.id);
+    if (bytes.length > 15 * 1024 * 1024) throw new Error("Image too large");
     const dataUrl = `data:${mime};base64,${bytes.toString("base64")}`;
     const answer = await askOpenAIImage(dataUrl, displayName);
     await saveMessage({ lineMessageId: event.message.id || null, scopeId, userId, displayName: rawName, groupId: source.groupId || null, messageType: "image", text: "[รูปภาพ] " + answer, role: "user" });
@@ -156,7 +157,7 @@ async function askOpenAIImage(dataUrl, displayName) {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${OPENAI_API_KEY}` },
     body: JSON.stringify({
-      model: OPENAI_MODEL,
+      model: process.env.OPENAI_VISION_MODEL || "gpt-5.4",
       instructions: "คุณคือ Art TTM อ่านและวิเคราะห์รูปภาพ/เอกสารจาก LINE อย่างละเอียด ตอบภาษาไทย กระชับ ถ้าผู้ใช้ต้องการแปลงเป็น PDF ให้บอกว่าอ่านรูปได้แล้วและสรุปสิ่งที่เห็นได้ แต่ห้ามอ้างว่าส่งไฟล์ PDF สำเร็จถ้าระบบยังไม่ได้สร้างไฟล์จริง",
       input: [{ role: "user", content: [
         { type: "input_text", text: `${displayName} ส่งรูปนี้มา กรุณาอ่านรูปและช่วยตามเนื้อหาในภาพ` },
@@ -519,7 +520,7 @@ async function askOpenAI(userText, recentContext, memberContext, longTermMemory,
     body: JSON.stringify({
       model: OPENAI_MODEL,
       instructions:
-        "คุณคือ Art TTM ผู้ช่วย AI ของทีม TTM HOME DESIGN & BUILD-IN ตอบภาษาไทยเป็นหลัก สุภาพ กระชับ ชัดเจน ให้เรียกสมาชิก LINE ทุกคนโดยเติมคำว่า 'พี่' นำหน้าชื่อเสมอ (ถ้าชื่อมีคำว่าพี่อยู่แล้วไม่ต้องเติมซ้ำ) ผู้ส่งข้อความล่าสุดจะถูกระบุชื่อ LINE ให้ชัดเจนใน input: ให้ถือชื่อนั้นเป็นตัวตนของคนที่กำลังคุยด้วยเสมอ ใช้ข้อมูลสมาชิก ความจำระยะยาว และบทสนทนาล่าสุดจาก Supabase เป็นข้อเท็จจริงเมื่อเกี่ยวข้อง โดยเฉพาะบรรทัด 'ข้อเท็จจริงความสัมพันธ์' ถ้าความจำระบุว่า 'จูน เป็นแฟนของ Benz' แล้ว Benz ถามว่าแฟนพี่ชื่ออะไร ต้องตอบ 'จูน' ทันที ถ้าจูนถามว่าฉันเป็นอะไรกับ Benz ให้ตอบว่าเป็นแฟนของ Benz ห้ามขอข้อมูลซ้ำเมื่อความจำมีคำตอบแล้ว ชื่อจาก LINE member profile และชื่อ @mention เป็นชื่อจริงในบริบทของกลุ่ม ให้แยกความจำตามผู้พูดและกลุ่ม ห้ามสลับเจ้าของความสัมพันธ์ หากไม่มีข้อมูลจริงจึงค่อยถามกลับ ห้ามแต่งข้อมูลหรือราคาโดยไม่มีฐานอ้างอิง",
+        "คุณคือ Art TTM ผู้ช่วย AI ของทีม TTM HOME DESIGN & BUILD-IN ตอบภาษาไทยเป็นหลัก สุภาพ กระชับ ชัดเจน เมื่อผู้ใช้ถามให้คำนวณ ให้คำนวณจากตัวเลขที่มีและแสดงคำตอบจริง เมื่อผู้ใช้ถามข้อมูลทั่วไปที่ไม่อยู่ในความจำ ให้ใช้ความรู้ของโมเดลตอบได้โดยแยกให้ชัดว่าไม่ใช่ข้อมูลจากไฟล์ ห้ามอ้างว่าอ่านไฟล์สำเร็จถ้าไม่มีเนื้อหาไฟล์ในบริบท ให้เรียกสมาชิก LINE ทุกคนโดยเติมคำว่า 'พี่' นำหน้าชื่อเสมอ (ถ้าชื่อมีคำว่าพี่อยู่แล้วไม่ต้องเติมซ้ำ) ผู้ส่งข้อความล่าสุดจะถูกระบุชื่อ LINE ให้ชัดเจนใน input: ให้ถือชื่อนั้นเป็นตัวตนของคนที่กำลังคุยด้วยเสมอ ใช้ข้อมูลสมาชิก ความจำระยะยาว และบทสนทนาล่าสุดจาก Supabase เป็นข้อเท็จจริงเมื่อเกี่ยวข้อง โดยเฉพาะบรรทัด 'ข้อเท็จจริงความสัมพันธ์' ถ้าความจำระบุว่า 'จูน เป็นแฟนของ Benz' แล้ว Benz ถามว่าแฟนพี่ชื่ออะไร ต้องตอบ 'จูน' ทันที ถ้าจูนถามว่าฉันเป็นอะไรกับ Benz ให้ตอบว่าเป็นแฟนของ Benz ห้ามขอข้อมูลซ้ำเมื่อความจำมีคำตอบแล้ว ชื่อจาก LINE member profile และชื่อ @mention เป็นชื่อจริงในบริบทของกลุ่ม ให้แยกความจำตามผู้พูดและกลุ่ม ห้ามสลับเจ้าของความสัมพันธ์ หากไม่มีข้อมูลจริงจึงค่อยถามกลับ ห้ามแต่งข้อมูลหรือราคาโดยไม่มีฐานอ้างอิง",
       input,
       reasoning: { effort: "none" },
       text: { verbosity: "low" },
