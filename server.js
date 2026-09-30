@@ -44,6 +44,7 @@ app.post("/webhook", express.raw({ type: "application/json" }), async (req, res)
       if (event.type === "message" && event.replyToken) {
         if (event.message?.type === "text") await processTextEvent(event);
         else if (event.message?.type === "image") await processImageEvent(event);
+        else if (event.message?.type === "file") await processFileEvent(event);
       }
     }
   } catch (error) {
@@ -57,6 +58,80 @@ function honorificName(name) {
   return /^พี่/.test(name) ? name : `พี่${name}`;
 }
 
+async function downloadLineContent(messageId) {
+  const r = await fetch(`https://api-data.line.me/v2/bot/message/${encodeURIComponent(messageId)}/content`, {
+    headers: { Authorization: `Bearer ${CHANNEL_ACCESS_TOKEN}` }
+  });
+  if (!r.ok) throw new Error(`LINE content error ${r.status}: ${await r.text()}`);
+  return {
+    bytes: Buffer.from(await r.arrayBuffer()),
+    mime: (r.headers.get("content-type") || "application/octet-stream").split(";")[0]
+  };
+}
+
+async function uploadOpenAIFile(bytes, fileName, mime) {
+  const fd = new FormData();
+  fd.append("purpose", "user_data");
+  fd.append("file", new Blob([bytes], { type: mime || "application/octet-stream" }), fileName || "document");
+  const r = await fetch("https://api.openai.com/v1/files", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${OPENAI_API_KEY}` },
+    body: fd
+  });
+  if (!r.ok) throw new Error(`OpenAI file upload error ${r.status}: ${await r.text()}`);
+  return await r.json();
+}
+
+async function processFileEvent(event) {
+  const source = event.source || {};
+  const userId = source.userId || null;
+  const scopeId = getScopeId(source);
+  const rawName = await getLineDisplayName(source, userId);
+  const displayName = honorificName(rawName) || "พี่";
+  const fileName = event.message.fileName || "document";
+  try {
+    const { bytes, mime } = await downloadLineContent(event.message.id);
+    const uploaded = await uploadOpenAIFile(bytes, fileName, mime);
+    const response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${OPENAI_API_KEY}` },
+      body: JSON.stringify({
+        model: OPENAI_MODEL,
+        instructions: "คุณคือ Art TTM อ่านไฟล์เอกสารจาก LINE เช่น PDF, Excel, Word และสรุปข้อมูลจริงจากไฟล์ ห้ามอ้างว่าอ่านหรือบันทึกสำเร็จถ้ายังไม่ได้ทำจริง",
+        input: [{ role: "user", content: [
+          { type: "input_file", file_id: uploaded.id },
+          { type: "input_text", text: `${displayName} ส่งไฟล์ชื่อ ${fileName} มา ให้อ่านไฟล์นี้และจำชื่อไฟล์ไว้ หากเป็น BOQ ให้สรุปว่าเป็นไฟล์อะไรและข้อมูลสำคัญที่อ่านได้` }
+        ]}],
+        max_output_tokens: 1500
+      })
+    });
+    if (!response.ok) throw new Error(`OpenAI file read error ${response.status}: ${await response.text()}`);
+    const data = await response.json();
+    const answer = extractOutputText(data) || `รับไฟล์ ${fileName} แล้วครับ`;
+    await saveMessage({ lineMessageId: event.message.id || null, scopeId, userId, displayName: rawName, groupId: source.groupId || null, messageType: "file", text: `[ไฟล์: ${fileName}] ${answer}`, role: "user" });
+    await saveFileMemory({ scopeId, userId, displayName: rawName, source, fileName, lineMessageId: event.message.id, openaiFileId: uploaded.id, mime, summary: answer });
+    await replyMessage(event.replyToken, `${displayName}ครับ อาร์ตอ่านและบันทึกไฟล์ “${fileName}” แล้วครับ\n${answer.slice(0, 3500)}`);
+  } catch (e) {
+    console.error("File processing error:", e);
+    await replyMessage(event.replyToken, `${displayName}ครับ อาร์ตรับไฟล์ “${fileName}” แล้ว แต่ยังอ่านเนื้อหาไม่สำเร็จครับ`);
+  }
+}
+
+async function saveFileMemory({ scopeId, userId, displayName, source, fileName, lineMessageId, openaiFileId, mime, summary }) {
+  await supabaseRequest("line_memories", {
+    method: "POST", prefer: "return=minimal",
+    body: JSON.stringify([{
+      line_message_id: lineMessageId, line_user_id: userId, user_id: userId,
+      display_name: displayName, source_type: source.type || "unknown",
+      group_id: source.groupId || null, room_id: source.roomId || null,
+      message_type: "file", file_name: fileName, mime_type: mime,
+      text_content: summary, memory_text: `ไฟล์ที่เคยได้รับ: ${fileName}\nสรุป: ${summary}`,
+      scope_id: scopeId,
+      metadata: { source: "line", openai_file_id: openaiFileId, line_message_id: lineMessageId, saved_by: "art-ttm-file-v1" }
+    }])
+  });
+}
+
 async function processImageEvent(event) {
   const source = event.source || {};
   const userId = source.userId || null;
@@ -65,12 +140,7 @@ async function processImageEvent(event) {
   const displayName = honorificName(rawName) || "พี่";
   try {
     await upsertMember({ scopeId, userId, displayName: rawName, sourceType: source.type || "unknown", groupId: source.groupId || null, roomId: source.roomId || null });
-    const r = await fetch(`https://api-data.line.me/v2/bot/message/${encodeURIComponent(event.message.id)}/content`, {
-      headers: { Authorization: `Bearer ${CHANNEL_ACCESS_TOKEN}` }
-    });
-    if (!r.ok) throw new Error(`LINE content error ${r.status}: ${await r.text()}`);
-    const mime = (r.headers.get("content-type") || "image/jpeg").split(";")[0];
-    const bytes = Buffer.from(await r.arrayBuffer());
+    const { bytes, mime } = await downloadLineContent(event.message.id);
     const dataUrl = `data:${mime};base64,${bytes.toString("base64")}`;
     const answer = await askOpenAIImage(dataUrl, displayName);
     await saveMessage({ lineMessageId: event.message.id || null, scopeId, userId, displayName: rawName, groupId: source.groupId || null, messageType: "image", text: "[รูปภาพ] " + answer, role: "user" });
@@ -150,6 +220,7 @@ async function processTextEvent(event) {
   let answer;
   try {
     answer = directIdentityReply(userText, displayName) ||
+      await maybeReturnKnownFile(userText, scopeId, displayName) ||
       await askOpenAI(userText, recentContext, memberContext, longTermMemory, displayName, mentionedMembers);
   } catch (error) {
     console.error("OpenAI processing error:", error);
@@ -360,6 +431,18 @@ async function loadLongTermMemory(scopeId) {
   return rows.reverse().map((m) =>
     `${m.display_name || "ผู้ใช้"}: ${m.memory_text || m.text_content || ""}`
   ).filter((x) => !x.endsWith(": ")).join("\n").slice(-16000);
+}
+
+async function maybeReturnKnownFile(text, scopeId, displayName) {
+  if (!/(ส่ง.*ไฟล์|ไฟล์.*กลับ|ขอ.*ไฟล์|เอา.*ไฟล์)/i.test(text || "")) return null;
+  const rows = (await supabaseRequest(
+    "line_memories?select=file_name,metadata,created_at" +
+    `&scope_id=eq.${encodeURIComponent(scopeId)}&message_type=eq.file&order=created_at.desc&limit=20`,
+    { method: "GET" }
+  )) || [];
+  const wanted = rows.find(r => r.file_name && (text || "").toLowerCase().includes(r.file_name.toLowerCase().replace(/\.[^.]+$/, ""))) || rows[0];
+  if (!wanted) return null;
+  return `${displayName || "พี่"}ครับ อาร์ตจำได้ว่าเคยได้รับไฟล์ “${wanted.file_name}” และมีข้อมูลไฟล์บันทึกไว้แล้วครับ แต่ LINE ไม่อนุญาตให้ส่งไฟล์ต้นฉบับเก่ากลับจาก message ID หลังหมดอายุโดยตรง ตอนนี้อาร์ตยังไม่มีที่เก็บไฟล์ถาวร จึงยังส่งไฟล์เดิมกลับไม่ได้ครับ`;
 }
 
 function directIdentityReply(text, displayName) {
