@@ -21,7 +21,7 @@ app.post("/webhook", express.raw({ type: "application/json" }), async (req, res)
       return res.sendStatus(500);
     }
 
-    const signature = req.headers["x-line-signature"];
+    const signature = safeHeaderValue(req.headers["x-line-signature"]);
     const expectedSignature = crypto
       .createHmac("SHA256", CHANNEL_SECRET)
       .update(req.body)
@@ -312,7 +312,13 @@ function supabaseHeaders(prefer) {
 }
 
 function safeHeaderValue(value) {
-  return String(value || "").trim().replace(/^["']|["']$/g, "");
+  // API tokens/URLs are ASCII. Remove smart quotes, invisible Unicode and accidental whitespace from copied env values.
+  return String(value || "")
+    .normalize("NFKC")
+    .replace(/[\u2018\u2019\u201C\u201D]/g, "")
+    .replace(/[^\x20-\x7E]/g, "")
+    .trim()
+    .replace(/^["']+|["']+$/g, "");
 }
 
 async function supabaseRequest(path, options = {}) {
