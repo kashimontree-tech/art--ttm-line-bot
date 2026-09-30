@@ -6,7 +6,7 @@ const app = express();
 const CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET;
 const CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-6-luna";
+const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-5.4-mini";
 
 app.get("/", (req, res) => {
   res.status(200).send("Art TTM LINE Bot is running");
@@ -39,8 +39,6 @@ app.post(
       }
 
       const body = JSON.parse(req.body.toString("utf8"));
-
-      // Acknowledge LINE quickly, then process the event on the Render service.
       res.sendStatus(200);
 
       for (const event of body.events || []) {
@@ -50,7 +48,6 @@ app.post(
           event.replyToken
         ) {
           let answer;
-
           try {
             answer = await askOpenAI(event.message.text);
           } catch (error) {
@@ -62,7 +59,6 @@ app.post(
           try {
             await replyMessage(event.replyToken, answer);
           } catch (error) {
-            // Do not retry the same LINE reply token.
             console.error("LINE reply error:", error);
           }
         }
@@ -75,9 +71,7 @@ app.post(
 );
 
 async function askOpenAI(userText) {
-  if (!OPENAI_API_KEY) {
-    throw new Error("Missing OPENAI_API_KEY");
-  }
+  if (!OPENAI_API_KEY) throw new Error("Missing OPENAI_API_KEY");
 
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
@@ -88,8 +82,10 @@ async function askOpenAI(userText) {
     body: JSON.stringify({
       model: OPENAI_MODEL,
       instructions:
-        "คุณคือ Art TTM ผู้ช่วย AI ของทีม TTM HOME DESIGN & BUILD-IN ตอบภาษาไทยเป็นหลัก สุภาพ กระชับ ชัดเจน และช่วยงานก่อสร้าง ออกแบบ BOQ ต้นทุน งานระบบ และงานทั่วไปของทีม หากข้อมูลไม่พอให้ถามกลับ ห้ามแต่งข้อมูลหรือราคาโดยไม่มีฐานอ้างอิง",
+        "คุณคือ Art TTM ผู้ช่วย AI ของทีม TTM HOME DESIGN & BUILD-IN ตอบภาษาไทยเป็นหลัก สุภาพ กระชับ ชัดเจน ช่วยงานก่อสร้าง ออกแบบ BOQ ต้นทุน งานระบบ และงานทั่วไปของทีม หากข้อมูลไม่พอให้ถามกลับ และห้ามแต่งข้อมูลหรือราคาโดยไม่มีฐานอ้างอิง",
       input: userText,
+      reasoning: { effort: "none" },
+      text: { verbosity: "low" },
       max_output_tokens: 800,
     }),
   });
@@ -102,12 +98,8 @@ async function askOpenAI(userText) {
 
   const data = await response.json();
   const text = extractOutputText(data);
+  if (!text) throw new Error("OpenAI returned an empty response");
 
-  if (!text) {
-    throw new Error("OpenAI returned an empty response");
-  }
-
-  // LINE text messages have a maximum length. Keep a safe margin.
   return text.slice(0, 4900);
 }
 
@@ -119,7 +111,6 @@ function extractOutputText(data) {
   const parts = [];
   for (const item of data.output || []) {
     if (item.type !== "message") continue;
-
     for (const content of item.content || []) {
       if (
         content.type === "output_text" &&
@@ -130,7 +121,6 @@ function extractOutputText(data) {
       }
     }
   }
-
   return parts.join("\n").trim();
 }
 
@@ -155,7 +145,6 @@ async function replyMessage(replyToken, text) {
 }
 
 const PORT = process.env.PORT || 3000;
-
 app.listen(PORT, () => {
   console.log(`Art TTM server running on port ${PORT}`);
 });
