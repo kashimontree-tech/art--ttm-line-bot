@@ -322,10 +322,16 @@ function safeHeaderValue(value) {
 
 function cleanEnvUrl(value) {
   let v = safeHeaderValue(value);
-  // Render value was accidentally pasted like: SUPABASE_URL=“https://...”
-  // Keep only the URL itself so Unicode before the URL can never reach fetch().
   const m = v.match(/https?:\/\/[^\s"'<>]+/i);
-  return m ? m[0].replace(/[),;]+$/, "") : v;
+  v = m ? m[0].replace(/[),;]+$/, "") : v;
+  // Remove accidental trailing punctuation from copied smart quotes.
+  try {
+    const u = new URL(v);
+    u.hostname = u.hostname.replace(/[^a-z0-9.-]/gi, "").replace(/\.+$/, "");
+    return u.origin;
+  } catch {
+    return v.replace(/[.,]+$/, "");
+  }
 }
 
 const CLEAN_SUPABASE_URL = cleanEnvUrl(SUPABASE_URL);
