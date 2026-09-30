@@ -65,33 +65,33 @@ async function processTextEvent(event) {
 
   try {
     await upsertMember({
-      scopeId,
-      userId,
-      displayName,
-      sourceType,
+      scopeId, userId, displayName, sourceType,
       groupId: source.groupId || null,
       roomId: source.roomId || null,
     });
-
     await saveMessage({
       lineMessageId: event.message.id || null,
-      scopeId,
-      userId,
-      displayName,
-      sourceType,
+      scopeId, userId, displayName,
       groupId: source.groupId || null,
-      messageType: "text",
-      text: userText,
-      role: "user",
+      messageType: "text", text: userText, role: "user",
+    });
+    await saveLongTermMemory({
+      scopeId, userId, displayName, sourceType, source,
+      text: userText, lineMessageId: event.message.id || null,
     });
   } catch (error) {
-    // Memory must never stop the bot from answering.
     console.error("Supabase write error:", error);
   }
 
   let recentContext = "";
+  let memberContext = "";
+  let longTermMemory = "";
   try {
-    recentContext = await loadRecentContext(scopeId);
+    [recentContext, memberContext, longTermMemory] = await Promise.all([
+      loadRecentContext(scopeId),
+      loadMemberContext(scopeId),
+      loadLongTermMemory(scopeId),
+    ]);
   } catch (error) {
     console.error("Supabase read error:", error);
   }
@@ -101,21 +101,13 @@ async function processTextEvent(event) {
     answer = await askOpenAI(userText, recentContext, memberContext, longTermMemory);
   } catch (error) {
     console.error("OpenAI processing error:", error);
-    answer =
-      "ขออภัยครับ ระบบ Art TTM มีปัญหาชั่วคราว กรุณาลองส่งข้อความอีกครั้งครับ";
+    answer = "ขออภัยครับ ระบบ Art TTM มีปัญหาชั่วคราว กรุณาลองส่งข้อความอีกครั้งครับ";
   }
 
   try {
     await saveMessage({
-      lineMessageId: null,
-      scopeId,
-      userId: null,
-      displayName: "Art TTM",
-      sourceType,
-      groupId: source.groupId || null,
-      messageType: "text",
-      text: answer,
-      role: "assistant",
+      lineMessageId: null, scopeId, userId: null, displayName: "Art TTM",
+      groupId: source.groupId || null, messageType: "text", text: answer, role: "assistant",
     });
   } catch (error) {
     console.error("Supabase assistant write error:", error);
@@ -315,9 +307,12 @@ async function saveLongTermMemory({ scopeId, userId, displayName, sourceType, so
 async function askOpenAI(userText, recentContext, memberContext, longTermMemory) {
   if (!OPENAI_API_KEY) throw new Error("Missing OPENAI_API_KEY");
 
-  const input = recentContext
-    ? `บทสนทนาล่าสุดในห้องนี้:\n${recentContext}\n\nข้อความล่าสุด:\n${userText}`
-    : userText;
+  const input = [
+    memberContext ? `สมาชิกที่ระบบรู้จักในห้องนี้:\n${memberContext}` : "",
+    longTermMemory ? `ความจำระยะยาวของห้องนี้:\n${longTermMemory}` : "",
+    recentContext ? `บทสนทนาล่าสุดในห้องนี้:\n${recentContext}` : "",
+    `ข้อความล่าสุด:\n${userText}`,
+  ].filter(Boolean).join("\n\n");
 
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
