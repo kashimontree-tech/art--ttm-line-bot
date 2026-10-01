@@ -1,29 +1,16 @@
 {
-
   "name": "art-ttm-line-bot",
-
   "version": "1.0.0",
-
   "description": "Art TTM LINE AI Webhook Server",
-
   "main": "server.js",
-
   "scripts": {
-
     "start": "node server.js"
-
   },
-
   "engines": {
-
     "node": "22.x"
-
   },
-
   "dependencies": {
-
-    "express": "^5.1.0"
-
+    "express": "^5.1.0",
+    "xlsx": "^0.18.5"
   }
-
 }
