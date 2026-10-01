@@ -261,6 +261,41 @@ async function askOpenAIImage(dataUrl, displayName) {
   return text.slice(0, 4900);
 }
 
+async function convertLatestAttachmentToExcel(scopeId, displayName) {
+  const list = liveFileCache.get(String(scopeId || "unknown")) || [];
+  const source = list[0];
+  if (!source) return `${displayName || "พี่"}ครับ ยังไม่พบไฟล์ต้นฉบับสำหรับแปลง กรุณาส่ง PDF/รูปมาก่อนครับ`;
+
+  const uploaded = await uploadOpenAIFile(source.bytes, source.fileName, source.mime);
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${CLEAN_OPENAI_KEY}` },
+    body: JSON.stringify({
+      model: process.env.OPENAI_FILE_MODEL || "gpt-5.4",
+      instructions: "Extract the document into a clean spreadsheet table. Return ONLY CSV text in UTF-8. Preserve Thai text, item descriptions, quantities, units, unit prices, totals, VAT and grand total. Do not use markdown fences and do not add explanations.",
+      input: [{ role: "user", content: [
+        { type: "input_file", file_id: uploaded.id },
+        { type: "input_text", text: "แปลงเอกสารนี้เป็นตารางสำหรับ Excel ให้ครบถ้วนที่สุด ส่งกลับเฉพาะ CSV" }
+      ]}],
+      max_output_tokens: 5000
+    })
+  });
+  if (!response.ok) throw new Error(`Excel conversion error ${response.status}: ${await response.text()}`);
+  const data = await response.json();
+  let csv = extractOutputText(data).replace(/^\`\`\`(?:csv)?\s*/i, "").replace(/\s*\`\`\`$/, "").trim();
+  if (!csv) throw new Error("Excel conversion returned empty CSV");
+  const stem = String(source.fileName || "converted").replace(/\.[^.]+$/, "");
+  const outName = `${stem}.csv`;
+  const bytes = Buffer.from("\uFEFF" + csv, "utf8");
+  cacheLiveFile(scopeId, outName, "text/csv; charset=utf-8", bytes);
+  const dl = createLiveDownload(scopeId, outName);
+  return `${displayName || "พี่"}ครับ แปลงไฟล์เป็นตาราง Excel ให้แล้วครับ ✅\n\nไฟล์: ${outName}\nดาวน์โหลด:\n${dl.url}\n\nเปิดด้วย Excel ได้ทันที ลิงก์ใช้ได้ 1 ชั่วโมงครับ`;
+}
+
+function wantsExcelConversion(text) {
+  return /(แปลง|ทำ|เปลี่ยน).*(excel|xlsx|เอ็กเซล)|(?:excel|xlsx|เอ็กเซล).*(แปลง|ทำ|เปลี่ยน)/i.test(text || "");
+}
+
 async function processTextEvent(event) {
   const source = event.source || {};
   const userId = source.userId || null;
@@ -309,6 +344,7 @@ async function processTextEvent(event) {
   let answer;
   try {
     answer = directIdentityReply(userText, displayName) ||
+      (wantsExcelConversion(userText) ? await convertLatestAttachmentToExcel(scopeId, displayName) : null) ||
       await maybeSaveLatestAttachment(userText, scopeId, displayName) ||
       await maybeReturnKnownFile(userText, scopeId, displayName) ||
       await askOpenAI(userText, recentContext, memberContext, longTermMemory, displayName, mentionedMembers);
