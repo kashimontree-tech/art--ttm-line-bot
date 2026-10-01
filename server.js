@@ -270,34 +270,65 @@ async function askOpenAIImage(dataUrl, displayName) {
 }
 
 async function convertLatestAttachmentToExcel(scopeId, displayName) {
-  const list = liveFileCache.get(String(scopeId || "unknown")) || [];
-  const source = list[0];
+  let source = (liveFileCache.get(String(scopeId || "unknown")) || [])[0] || null;
+
+  if (!source) {
+    try {
+      const rows = (await supabaseRequest(
+        "line_memories?select=file_name,mime_type,storage_bucket,storage_path,created_at" +
+        `&scope_id=eq.${encodeURIComponent(scopeId)}&message_type=eq.file&order=created_at.desc&limit=1`,
+        { method: "GET" }
+      )) || [];
+      const row = rows[0];
+      if (row?.storage_bucket && row?.storage_path) {
+        const bytes = await downloadSupabaseFile(row.storage_bucket, row.storage_path);
+        source = { fileName: row.file_name || "document", mime: row.mime_type || "application/octet-stream", bytes };
+        cacheLiveFile(scopeId, source.fileName, source.mime, source.bytes);
+      }
+    } catch (e) {
+      console.error("Load persistent source for conversion error:", e);
+    }
+  }
+
   if (!source) return `${displayName || "พี่"}ครับ ยังไม่พบไฟล์ต้นฉบับสำหรับแปลง กรุณาส่ง PDF/รูปมาก่อนครับ`;
 
-  const uploaded = await uploadOpenAIFile(source.bytes, source.fileName, source.mime);
+  let content;
+  if (String(source.mime || "").startsWith("image/")) {
+    const imageUrl = `data:${source.mime};base64,${source.bytes.toString("base64")}`;
+    content = [
+      { type: "input_text", text: "แปลงเอกสารในภาพนี้เป็นตารางสำหรับ Excel ให้ครบถ้วนที่สุด ส่งกลับเฉพาะ CSV" },
+      { type: "input_image", image_url: imageUrl }
+    ];
+  } else {
+    const uploaded = await uploadOpenAIFile(source.bytes, source.fileName, source.mime);
+    content = [
+      { type: "input_file", file_id: uploaded.id },
+      { type: "input_text", text: "แปลงเอกสารนี้เป็นตารางสำหรับ Excel ให้ครบถ้วนที่สุด ส่งกลับเฉพาะ CSV" }
+    ];
+  }
+
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${CLEAN_OPENAI_KEY}` },
     body: JSON.stringify({
       model: process.env.OPENAI_FILE_MODEL || "gpt-5.4",
       instructions: "Extract the document into a clean spreadsheet table. Return ONLY CSV text in UTF-8. Preserve Thai text, item descriptions, quantities, units, unit prices, totals, VAT and grand total. Do not use markdown fences and do not add explanations.",
-      input: [{ role: "user", content: [
-        { type: "input_file", file_id: uploaded.id },
-        { type: "input_text", text: "แปลงเอกสารนี้เป็นตารางสำหรับ Excel ให้ครบถ้วนที่สุด ส่งกลับเฉพาะ CSV" }
-      ]}],
+      input: [{ role: "user", content }],
       max_output_tokens: 5000
     })
   });
+
   if (!response.ok) throw new Error(`Excel conversion error ${response.status}: ${await response.text()}`);
   const data = await response.json();
   let csv = extractOutputText(data).replace(/^\`\`\`(?:csv)?\s*/i, "").replace(/\s*\`\`\`$/, "").trim();
   if (!csv) throw new Error("Excel conversion returned empty CSV");
+
   const stem = String(source.fileName || "converted").replace(/\.[^.]+$/, "");
   const outName = `${stem}.csv`;
   const bytes = Buffer.from("\uFEFF" + csv, "utf8");
   cacheLiveFile(scopeId, outName, "text/csv; charset=utf-8", bytes);
   const dl = createLiveDownload(scopeId, outName);
-  return `${displayName || "พี่"}ครับ แปลงไฟล์เป็นตาราง Excel ให้แล้วครับ ✅\n\nไฟล์: ${outName}\nดาวน์โหลด:\n${dl.url}\n\nเปิดด้วย Excel ได้ทันที ลิงก์ใช้ได้ 1 ชั่วโมงครับ`;
+  return `${displayName || "พี่"}ครับ แปลงเอกสารเป็นตาราง Excel ให้แล้วครับ ✅\n\nไฟล์: ${outName}\nดาวน์โหลด:\n${dl.url}\n\nเปิดด้วย Excel ได้ทันที ลิงก์ใช้ได้ 1 ชั่วโมงครับ`;
 }
 
 function wantsExcelConversion(text) {
