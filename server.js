@@ -223,7 +223,15 @@ async function processImageEvent(event) {
     const { bytes, mime } = await downloadLineContent(event.message.id);
     if (bytes.length > 15 * 1024 * 1024) throw new Error("Image too large");
     const imageExt = mime === "image/png" ? "png" : mime === "image/webp" ? "webp" : "jpg";
-    cacheLiveFile(scopeId, `LINE_image_${event.message.id}.${imageExt}`, mime, bytes);
+    const imageFileName = `LINE_image_${event.message.id}.${imageExt}`;
+    cacheLiveFile(scopeId, imageFileName, mime, bytes);
+    let storedImage = null;
+    try {
+      storedImage = await uploadSupabaseFile(bytes, scopeId, event.message.id, imageFileName, mime);
+      await saveFileMemory({ scopeId, userId, displayName: rawName, source, fileName: imageFileName, lineMessageId: event.message.id, openaiFileId: null, mime, summary: "รูปภาพ/เอกสารจาก LINE", storageBucket: storedImage.bucket, storagePath: storedImage.storagePath });
+    } catch (storageError) {
+      console.error("Permanent image storage error (non-blocking):", storageError);
+    }
     const dataUrl = `data:${mime};base64,${bytes.toString("base64")}`;
     const answer = await askOpenAIImage(dataUrl, displayName);
 
