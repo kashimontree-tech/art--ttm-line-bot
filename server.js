@@ -2,6 +2,41 @@ const express = require("express");
 const crypto = require("crypto");
 
 const app = express();
+const liveFileCache = new Map();
+const downloadTokens = new Map();
+
+app.get("/download/:token", (req, res) => {
+  const item = downloadTokens.get(req.params.token);
+  if (!item || item.expiresAt < Date.now()) {
+    downloadTokens.delete(req.params.token);
+    return res.status(404).send("File link expired or not found");
+  }
+  res.setHeader("Content-Type", item.mime || "application/octet-stream");
+  res.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(item.fileName || "document")}`);
+  return res.send(item.bytes);
+});
+
+function cacheLiveFile(scopeId, fileName, mime, bytes) {
+  const key = String(scopeId || "unknown");
+  const list = liveFileCache.get(key) || [];
+  list.unshift({ fileName, mime, bytes, savedAt: Date.now() });
+  liveFileCache.set(key, list.slice(0, 20));
+}
+
+function createLiveDownload(scopeId, requestedText) {
+  const list = liveFileCache.get(String(scopeId || "unknown")) || [];
+  if (!list.length) return null;
+  const q = String(requestedText || "").toLowerCase().replace(/\s+/g, "");
+  const item = list.find(x => {
+    const full = String(x.fileName || "").toLowerCase().replace(/\s+/g, "");
+    const stem = full.replace(/\.[^.]+$/, "");
+    return q.includes(full) || (stem && q.includes(stem));
+  }) || list[0];
+  const token = crypto.randomBytes(24).toString("hex");
+  downloadTokens.set(token, { ...item, expiresAt: Date.now() + 60 * 60 * 1000 });
+  const base = process.env.RENDER_EXTERNAL_URL || "https://art-ttm-line-bot.onrender.com";
+  return { item, url: `${base.replace(/\/$/, "")}/download/${token}` };
+}
 
 const CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET;
 const CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
@@ -122,6 +157,7 @@ async function processFileEvent(event) {
   const fileName = event.message.fileName || "document";
   try {
     const { bytes, mime } = await downloadLineContent(event.message.id);
+    cacheLiveFile(scopeId, fileName, mime, bytes);
     let stored = null;
     try {
       stored = await uploadSupabaseFile(bytes, scopeId, event.message.id, fileName, mime);
@@ -536,30 +572,38 @@ async function createSupabaseSignedUrl(bucket, storagePath, expiresIn = 3600) {
 
 async function maybeReturnKnownFile(text, scopeId, displayName) {
   if (!/(ส่ง.*ไฟล์|ไฟล์.*กลับ|ขอ.*ไฟล์|เอา.*ไฟล์|ดาวน์โหลด.*ไฟล์)/i.test(text || "")) return null;
-  const rows = (await supabaseRequest(
-    "line_memories?select=file_name,mime_type,storage_bucket,storage_path,metadata,created_at" +
-    `&scope_id=eq.${encodeURIComponent(scopeId)}&message_type=eq.file&order=created_at.desc&limit=50`,
-    { method: "GET" }
-  )) || [];
-  const normalizedText = String(text || "").toLowerCase().replace(/\s+/g, "");
-  const wanted = rows.find(r => {
-    if (!r.file_name) return false;
-    const full = r.file_name.toLowerCase().replace(/\s+/g, "");
-    const stem = full.replace(/\.[^.]+$/, "");
-    return normalizedText.includes(full) || normalizedText.includes(stem);
-  }) || rows[0];
-  if (!wanted) return null;
 
-  if (wanted.storage_bucket && wanted.storage_path) {
-    try {
-      const signedUrl = await createSupabaseSignedUrl(wanted.storage_bucket, wanted.storage_path, 3600);
-      return `${displayName || "พี่"}ครับ อาร์ตส่งไฟล์ “${wanted.file_name}” กลับมาให้แล้วครับ ✅\n\nเปิด/ดาวน์โหลดไฟล์ได้ที่ลิงก์นี้ (ลิงก์ใช้ได้ 1 ชั่วโมง):\n${signedUrl}`;
-    } catch (error) {
-      console.error("Create signed file URL error:", error);
-      return `${displayName || "พี่"}ครับ อาร์ตพบไฟล์ “${wanted.file_name}” ในคลัง TTM แล้ว แต่ตอนนี้สร้างลิงก์ดาวน์โหลดไม่สำเร็จครับ`;
-    }
+  // Primary path: files received by this running bot. This does not depend on Supabase.
+  const live = createLiveDownload(scopeId, text);
+  if (live) {
+    return `${displayName || "พี่"}ครับ อาร์ตส่งไฟล์ “${live.item.fileName}” กลับมาให้แล้วครับ ✅\n\nดาวน์โหลดไฟล์:\n${live.url}\n\nลิงก์ใช้ได้ 1 ชั่วโมงครับ`;
   }
-  return `${displayName || "พี่"}ครับ อาร์ตจำไฟล์ “${wanted.file_name}” ได้ แต่ไฟล์นี้ถูกส่งมาก่อนเปิดระบบเก็บไฟล์ต้นฉบับ จึงมีเฉพาะข้อมูล/สรุปครับ กรุณาส่งต้นฉบับอีกครั้งหนึ่งครับ`;
+
+  // Persistent fallback: previously stored Supabase files.
+  try {
+    const rows = (await supabaseRequest(
+      "line_memories?select=file_name,mime_type,storage_bucket,storage_path,metadata,created_at" +
+      `&scope_id=eq.${encodeURIComponent(scopeId)}&message_type=eq.file&order=created_at.desc&limit=50`,
+      { method: "GET" }
+    )) || [];
+    const normalizedText = String(text || "").toLowerCase().replace(/\s+/g, "");
+    const wanted = rows.find(r => {
+      if (!r.file_name) return false;
+      const full = r.file_name.toLowerCase().replace(/\s+/g, "");
+      const stem = full.replace(/\.[^.]+$/, "");
+      return normalizedText.includes(full) || normalizedText.includes(stem);
+    }) || rows[0];
+    if (!wanted) return `${displayName || "พี่"}ครับ ยังไม่พบไฟล์ต้นฉบับที่บันทึกไว้ในห้องนี้ กรุณาส่งไฟล์ต้นฉบับให้อาร์ตอีกครั้งหนึ่งครับ`;
+
+    if (wanted.storage_bucket && wanted.storage_path) {
+      const signedUrl = await createSupabaseSignedUrl(wanted.storage_bucket, wanted.storage_path, 3600);
+      return `${displayName || "พี่"}ครับ อาร์ตส่งไฟล์ “${wanted.file_name}” กลับมาให้แล้วครับ ✅\n\nดาวน์โหลดไฟล์:\n${signedUrl}\n\nลิงก์ใช้ได้ 1 ชั่วโมงครับ`;
+    }
+    return `${displayName || "พี่"}ครับ อาร์ตพบข้อมูลของไฟล์ “${wanted.file_name}” แต่ไม่มีต้นฉบับที่ดาวน์โหลดได้ กรุณาส่งต้นฉบับอีกครั้งหนึ่งครับ`;
+  } catch (error) {
+    console.error("Saved-file lookup error (non-blocking):", error);
+    return `${displayName || "พี่"}ครับ ตอนนี้คลังไฟล์ถาวรเชื่อมต่อไม่ได้ และยังไม่มีไฟล์ต้นฉบับในหน่วยความจำรอบนี้ กรุณาส่งไฟล์ต้นฉบับให้อาร์ตอีกครั้ง แล้วสั่งส่งกลับได้ทันทีครับ`;
+  }
 }
 
 function directIdentityReply(text, displayName) {
