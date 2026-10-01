@@ -1,6 +1,7 @@
 const express = require("express");
 const crypto = require("crypto");
 const XLSX = require("xlsx");
+const PDFDocument = require("pdfkit");
 
 const app = express();
 const liveFileCache = new Map();
@@ -382,6 +383,136 @@ async function convertLatestAttachmentToExcel(scopeId, displayName) {
   return `${displayName || "พี่"}ครับ แปลงเป็น Excel จริงให้แล้วครับ ✅\n\nไฟล์: ${outName}\nมี 2 ชีต: “สรุปเอกสาร” และ “รายการ”\nดาวน์โหลด:\n${dl.url}\n\nลิงก์ใช้ได้ 1 ชั่วโมงครับ`;
 }
 
+let cachedThaiFont = null;
+
+async function getThaiPdfFont() {
+  if (cachedThaiFont) return cachedThaiFont;
+  const fontUrl = "https://raw.githubusercontent.com/google/fonts/main/ofl/notosansthai/NotoSansThai%5Bwdth%2Cwght%5D.ttf";
+  const r = await fetch(fontUrl);
+  if (!r.ok) throw new Error(`Thai font download error ${r.status}`);
+  cachedThaiFont = Buffer.from(await r.arrayBuffer());
+  return cachedThaiFont;
+}
+
+function wantsPdfConversion(text) {
+  return /(แปลง|ทำ|เปลี่ยน).*(pdf|พีดีเอฟ)|(?:pdf|พีดีเอฟ).*(แปลง|ทำ|เปลี่ยน)/i.test(text || "");
+}
+
+async function convertLatestExcelToPdf(scopeId, displayName) {
+  const cache = liveFileCache.get(String(scopeId || "unknown")) || [];
+  let source = cache.find(x => /\.xlsx$/i.test(String(x.fileName || ""))) || null;
+
+  if (!source) {
+    try {
+      const rows = (await supabaseRequest(
+        "line_memories?select=file_name,mime_type,storage_bucket,storage_path,created_at" +
+        `&scope_id=eq.${encodeURIComponent(scopeId)}&message_type=eq.file&order=created_at.desc&limit=30`,
+        { method: "GET" }
+      )) || [];
+      const row = rows.find(r => /\.xlsx$/i.test(String(r.file_name || "")) && r.storage_bucket && r.storage_path);
+      if (row) {
+        const bytes = await downloadSupabaseFile(row.storage_bucket, row.storage_path);
+        source = { fileName: row.file_name, mime: row.mime_type || "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", bytes };
+        cacheLiveFile(scopeId, source.fileName, source.mime, source.bytes);
+      }
+    } catch (e) {
+      console.error("Load XLSX for PDF conversion error:", e);
+    }
+  }
+
+  if (!source) {
+    return `${displayName || "พี่"}ครับ ยังไม่พบไฟล์ Excel (.xlsx) สำหรับแปลงเป็น PDF กรุณาส่งไฟล์ Excel มาก่อนครับ`;
+  }
+
+  const workbook = XLSX.read(source.bytes, { type: "buffer", cellDates: false });
+  const thaiFont = await getThaiPdfFont();
+
+  const pdfBytes = await new Promise((resolve, reject) => {
+    try {
+      const doc = new PDFDocument({ size: "A4", layout: "landscape", margin: 24, autoFirstPage: false });
+      const chunks = [];
+      doc.on("data", chunk => chunks.push(chunk));
+      doc.on("end", () => resolve(Buffer.concat(chunks)));
+      doc.on("error", reject);
+      doc.registerFont("Thai", thaiFont);
+
+      for (const sheetName of workbook.SheetNames) {
+        const ws = workbook.Sheets[sheetName];
+        const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", raw: false });
+        doc.addPage();
+        doc.font("Thai").fontSize(13).text(String(sheetName), { align: "left" });
+        doc.moveDown(0.5);
+
+        const pageWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+        const maxCols = Math.max(1, ...rows.map(r => Array.isArray(r) ? r.length : 0));
+        const colWidth = Math.max(60, pageWidth / Math.min(maxCols, 8));
+        const renderCols = Math.min(maxCols, 8);
+
+        doc.fontSize(7);
+        for (const row of rows) {
+          const vals = Array.isArray(row) ? row : [];
+          const texts = [];
+          for (let i = 0; i < renderCols; i++) texts.push(String(vals[i] ?? ""));
+
+          const heights = texts.map(t => doc.heightOfString(t || " ", { width: colWidth - 6, lineGap: 1 }));
+          const rowH = Math.max(18, Math.min(64, ...heights)) + 6;
+
+          if (doc.y + rowH > doc.page.height - doc.page.margins.bottom) {
+            doc.addPage();
+            doc.font("Thai").fontSize(13).text(String(sheetName) + " (ต่อ)", { align: "left" });
+            doc.moveDown(0.4);
+            doc.fontSize(7);
+          }
+
+          const y = doc.y;
+          let x = doc.page.margins.left;
+          for (let i = 0; i < renderCols; i++) {
+            doc.rect(x, y, colWidth, rowH).stroke();
+            doc.font("Thai").fontSize(7).text(texts[i], x + 3, y + 3, {
+              width: colWidth - 6,
+              height: rowH - 6,
+              ellipsis: true,
+              lineGap: 1
+            });
+            x += colWidth;
+          }
+          doc.y = y + rowH;
+        }
+      }
+
+      doc.end();
+    } catch (e) {
+      reject(e);
+    }
+  });
+
+  const stem = String(source.fileName || "converted").replace(/\.xlsx$/i, "");
+  const outName = `${stem}.pdf`;
+  cacheLiveFile(scopeId, outName, "application/pdf", pdfBytes);
+
+  try {
+    const stored = await uploadSupabaseFile(pdfBytes, scopeId, "generated-pdf", outName, "application/pdf");
+    await saveFileMemory({
+      scopeId,
+      userId: null,
+      displayName: "Art TTM",
+      source: { type: "bot" },
+      fileName: outName,
+      lineMessageId: null,
+      openaiFileId: null,
+      mime: "application/pdf",
+      summary: `PDF converted from ${source.fileName}`,
+      storageBucket: stored.bucket,
+      storagePath: stored.storagePath
+    });
+  } catch (e) {
+    console.error("Persist generated PDF error (non-blocking):", e);
+  }
+
+  const dl = createLiveDownload(scopeId, outName);
+  return `${displayName || "พี่"}ครับ แปลง Excel เป็น PDF ให้แล้วครับ ✅\n\nไฟล์: ${outName}\nดาวน์โหลด:\n${dl.url}\n\nลิงก์ใช้ได้ 1 ชั่วโมงครับ`;
+}
+
 function wantsExcelConversion(text) {
   return /(แปลง|ทำ|เปลี่ยน).*(excel|xlsx|เอ็กเซล)|(?:excel|xlsx|เอ็กเซล).*(แปลง|ทำ|เปลี่ยน)/i.test(text || "");
 }
@@ -434,6 +565,7 @@ async function processTextEvent(event) {
   let answer;
   try {
     answer = directIdentityReply(userText, displayName) ||
+      (wantsPdfConversion(userText) ? await convertLatestExcelToPdf(scopeId, displayName) : null) ||
       (wantsExcelConversion(userText) ? await convertLatestAttachmentToExcel(scopeId, displayName) : null) ||
       await maybeSaveLatestAttachment(userText, scopeId, displayName) ||
       await maybeReturnKnownFile(userText, scopeId, displayName) ||
