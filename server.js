@@ -177,12 +177,24 @@ async function processImageEvent(event) {
   const rawName = await getLineDisplayName(source, userId);
   const displayName = honorificName(rawName) || "พี่";
   try {
-    await upsertMember({ scopeId, userId, displayName: rawName, sourceType: source.type || "unknown", groupId: source.groupId || null, roomId: source.roomId || null });
+    // Supabase is optional for image understanding. A database/network failure must never block Vision.
+    try {
+      await upsertMember({ scopeId, userId, displayName: rawName, sourceType: source.type || "unknown", groupId: source.groupId || null, roomId: source.roomId || null });
+    } catch (dbError) {
+      console.error("Image member persistence error (non-blocking):", dbError);
+    }
+
     const { bytes, mime } = await downloadLineContent(event.message.id);
     if (bytes.length > 15 * 1024 * 1024) throw new Error("Image too large");
     const dataUrl = `data:${mime};base64,${bytes.toString("base64")}`;
     const answer = await askOpenAIImage(dataUrl, displayName);
-    await saveMessage({ lineMessageId: event.message.id || null, scopeId, userId, displayName: rawName, groupId: source.groupId || null, messageType: "image", text: "[รูปภาพ] " + answer, role: "user" });
+
+    try {
+      await saveMessage({ lineMessageId: event.message.id || null, scopeId, userId, displayName: rawName, groupId: source.groupId || null, messageType: "image", text: "[รูปภาพ] " + answer, role: "user" });
+    } catch (dbError) {
+      console.error("Image message persistence error (non-blocking):", dbError);
+    }
+
     await replyMessage(event.replyToken, answer);
   } catch (e) {
     console.error("Image processing error:", e);
