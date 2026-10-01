@@ -222,6 +222,8 @@ async function processImageEvent(event) {
 
     const { bytes, mime } = await downloadLineContent(event.message.id);
     if (bytes.length > 15 * 1024 * 1024) throw new Error("Image too large");
+    const imageExt = mime === "image/png" ? "png" : mime === "image/webp" ? "webp" : "jpg";
+    cacheLiveFile(scopeId, `LINE_image_${event.message.id}.${imageExt}`, mime, bytes);
     const dataUrl = `data:${mime};base64,${bytes.toString("base64")}`;
     const answer = await askOpenAIImage(dataUrl, displayName);
 
@@ -307,6 +309,7 @@ async function processTextEvent(event) {
   let answer;
   try {
     answer = directIdentityReply(userText, displayName) ||
+      await maybeSaveLatestAttachment(userText, scopeId, displayName) ||
       await maybeReturnKnownFile(userText, scopeId, displayName) ||
       await askOpenAI(userText, recentContext, memberContext, longTermMemory, displayName, mentionedMembers);
   } catch (error) {
@@ -568,6 +571,16 @@ async function createSupabaseSignedUrl(bucket, storagePath, expiresIn = 3600) {
   const signedPath = data.signedURL || data.signedUrl || data.signed_url;
   if (!signedPath) throw new Error("Supabase did not return a signed URL");
   return signedPath.startsWith("http") ? signedPath : `${CLEAN_SUPABASE_URL}/storage/v1${signedPath}`;
+}
+
+async function maybeSaveLatestAttachment(text, scopeId, displayName) {
+  if (!/(บันทึก.*ไฟล์|จำ.*ไฟล์|เก็บ.*ไฟล์|บันทึก.*รูป|เก็บ.*รูป)/i.test(text || "")) return null;
+  const list = liveFileCache.get(String(scopeId || "unknown")) || [];
+  if (!list.length) {
+    return `${displayName || "พี่"}ครับ ตอนนี้อาร์ตยังไม่พบไฟล์หรือรูปต้นฉบับในข้อความล่าสุด กรุณาส่งไฟล์/รูปเข้าห้องนี้ก่อน แล้วพิมพ์ “อาร์ตบันทึกไฟล์นี้” ครับ`;
+  }
+  const item = list[0];
+  return `${displayName || "พี่"}ครับ อาร์ตบันทึกไฟล์ล่าสุด “${item.fileName}” ไว้แล้วครับ ✅ ถ้าต้องการรับกลับ พิมพ์ “อาร์ตส่งไฟล์ที่บันทึกกลับมา” ได้เลยครับ`;
 }
 
 async function maybeReturnKnownFile(text, scopeId, displayName) {
