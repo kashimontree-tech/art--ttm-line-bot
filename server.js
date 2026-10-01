@@ -69,6 +69,37 @@ async function downloadLineContent(messageId) {
   };
 }
 
+async function uploadSupabaseFile(bytes, scopeId, messageId, fileName, mime) {
+  const safeScope = String(scopeId || "unknown").replace(/[^a-zA-Z0-9._-]/g, "_");
+  const safeName = String(fileName || "document").replace(/[^a-zA-Z0-9._-]/g, "_");
+  const storagePath = `${safeScope}/${Date.now()}-${messageId || "msg"}-${safeName}`;
+  const bucket = process.env.SUPABASE_FILE_BUCKET || "line-files";
+  const response = await fetch(
+    `${CLEAN_SUPABASE_URL}/storage/v1/object/${encodeURIComponent(bucket)}/${storagePath.split("/").map(encodeURIComponent).join("/")}`,
+    {
+      method: "POST",
+      headers: {
+        apikey: CLEAN_SUPABASE_KEY,
+        Authorization: `Bearer ${CLEAN_SUPABASE_KEY}`,
+        "Content-Type": mime || "application/octet-stream",
+        "x-upsert": "true",
+      },
+      body: bytes,
+    }
+  );
+  if (!response.ok) throw new Error(`Supabase storage error ${response.status}: ${await response.text()}`);
+  return { bucket, storagePath };
+}
+
+async function downloadSupabaseFile(bucket, storagePath) {
+  const response = await fetch(
+    `${CLEAN_SUPABASE_URL}/storage/v1/object/${encodeURIComponent(bucket)}/${String(storagePath).split("/").map(encodeURIComponent).join("/")}`,
+    { headers: { apikey: CLEAN_SUPABASE_KEY, Authorization: `Bearer ${CLEAN_SUPABASE_KEY}` } }
+  );
+  if (!response.ok) throw new Error(`Supabase storage download error ${response.status}: ${await response.text()}`);
+  return Buffer.from(await response.arrayBuffer());
+}
+
 async function uploadOpenAIFile(bytes, fileName, mime) {
   const fd = new FormData();
   fd.append("purpose", "user_data");
@@ -91,6 +122,12 @@ async function processFileEvent(event) {
   const fileName = event.message.fileName || "document";
   try {
     const { bytes, mime } = await downloadLineContent(event.message.id);
+    let stored = null;
+    try {
+      stored = await uploadSupabaseFile(bytes, scopeId, event.message.id, fileName, mime);
+    } catch (storageError) {
+      console.error("Permanent file storage error:", storageError);
+    }
     const uploaded = await uploadOpenAIFile(bytes, fileName, mime);
     const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
@@ -109,7 +146,7 @@ async function processFileEvent(event) {
     const data = await response.json();
     const answer = extractOutputText(data) || `รับไฟล์ ${fileName} แล้วครับ`;
     await saveMessage({ lineMessageId: event.message.id || null, scopeId, userId, displayName: rawName, groupId: source.groupId || null, messageType: "file", text: `[ไฟล์: ${fileName}] ${answer}`, role: "user" });
-    await saveFileMemory({ scopeId, userId, displayName: rawName, source, fileName, lineMessageId: event.message.id, openaiFileId: uploaded.id, mime, summary: answer });
+    await saveFileMemory({ scopeId, userId, displayName: rawName, source, fileName, lineMessageId: event.message.id, openaiFileId: uploaded.id, mime, summary: answer, storageBucket: stored?.bucket || null, storagePath: stored?.storagePath || null });
     await replyMessage(event.replyToken, `${displayName}ครับ อาร์ตอ่านและบันทึกไฟล์ “${fileName}” แล้วครับ\n${answer.slice(0, 3500)}`);
   } catch (e) {
     console.error("File processing error:", e);
@@ -117,7 +154,7 @@ async function processFileEvent(event) {
   }
 }
 
-async function saveFileMemory({ scopeId, userId, displayName, source, fileName, lineMessageId, openaiFileId, mime, summary }) {
+async function saveFileMemory({ scopeId, userId, displayName, source, fileName, lineMessageId, openaiFileId, mime, summary, storageBucket, storagePath }) {
   await supabaseRequest("line_memories", {
     method: "POST", prefer: "return=minimal",
     body: JSON.stringify([{
@@ -125,9 +162,10 @@ async function saveFileMemory({ scopeId, userId, displayName, source, fileName, 
       display_name: displayName, source_type: source.type || "unknown",
       group_id: source.groupId || null, room_id: source.roomId || null,
       message_type: "file", file_name: fileName, mime_type: mime,
+      storage_bucket: storageBucket, storage_path: storagePath,
       text_content: summary, memory_text: `ไฟล์ที่เคยได้รับ: ${fileName}\nสรุป: ${summary}`,
       scope_id: scopeId,
-      metadata: { source: "line", openai_file_id: openaiFileId, line_message_id: lineMessageId, saved_by: "art-ttm-file-v1" }
+      metadata: { source: "line", openai_file_id: openaiFileId, line_message_id: lineMessageId, storage_bucket: storageBucket, storage_path: storagePath, saved_by: "art-ttm-file-v2" }
     }])
   });
 }
@@ -467,13 +505,16 @@ async function loadLongTermMemory(scopeId) {
 async function maybeReturnKnownFile(text, scopeId, displayName) {
   if (!/(ส่ง.*ไฟล์|ไฟล์.*กลับ|ขอ.*ไฟล์|เอา.*ไฟล์)/i.test(text || "")) return null;
   const rows = (await supabaseRequest(
-    "line_memories?select=file_name,metadata,created_at" +
+    "line_memories?select=file_name,mime_type,storage_bucket,storage_path,metadata,created_at" +
     `&scope_id=eq.${encodeURIComponent(scopeId)}&message_type=eq.file&order=created_at.desc&limit=20`,
     { method: "GET" }
   )) || [];
   const wanted = rows.find(r => r.file_name && (text || "").toLowerCase().includes(r.file_name.toLowerCase().replace(/\.[^.]+$/, ""))) || rows[0];
   if (!wanted) return null;
-  return `${displayName || "พี่"}ครับ อาร์ตจำได้ว่าเคยได้รับไฟล์ “${wanted.file_name}” และมีข้อมูลไฟล์บันทึกไว้แล้วครับ แต่ LINE ไม่อนุญาตให้ส่งไฟล์ต้นฉบับเก่ากลับจาก message ID หลังหมดอายุโดยตรง ตอนนี้อาร์ตยังไม่มีที่เก็บไฟล์ถาวร จึงยังส่งไฟล์เดิมกลับไม่ได้ครับ`;
+  if (wanted.storage_bucket && wanted.storage_path) {
+    return `${displayName || "พี่"}ครับ อาร์ตมีไฟล์ต้นฉบับ “${wanted.file_name}” เก็บถาวรในคลัง TTM แล้วครับ แต่ LINE Messaging API ไม่รองรับการแนบไฟล์ทั่วไปกลับเป็นข้อความโดยตรง อาร์ตจึงยังส่ง attachment เดิมในห้องแชตไม่ได้ครับ`;
+  }
+  return `${displayName || "พี่"}ครับ อาร์ตจำไฟล์ “${wanted.file_name}” ได้ แต่ไฟล์นี้ถูกส่งมาก่อนเปิดระบบเก็บไฟล์ถาวร จึงมีเฉพาะข้อมูล/สรุปครับ กรุณาส่งต้นฉบับอีกครั้งหนึ่ง แล้วครั้งต่อไปอาร์ตจะเก็บต้นฉบับไว้ครับ`;
 }
 
 function directIdentityReply(text, displayName) {
