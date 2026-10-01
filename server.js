@@ -514,19 +514,52 @@ async function loadLongTermMemory(scopeId) {
   ).filter((x) => !x.endsWith(": ")).join("\n").slice(-16000);
 }
 
+async function createSupabaseSignedUrl(bucket, storagePath, expiresIn = 3600) {
+  const response = await fetch(
+    `${CLEAN_SUPABASE_URL}/storage/v1/object/sign/${encodeURIComponent(bucket)}/${String(storagePath).split("/").map(encodeURIComponent).join("/")}`,
+    {
+      method: "POST",
+      headers: {
+        apikey: CLEAN_SUPABASE_KEY,
+        Authorization: `Bearer ${CLEAN_SUPABASE_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ expiresIn }),
+    }
+  );
+  if (!response.ok) throw new Error(`Supabase signed URL error ${response.status}: ${await response.text()}`);
+  const data = await response.json();
+  const signedPath = data.signedURL || data.signedUrl || data.signed_url;
+  if (!signedPath) throw new Error("Supabase did not return a signed URL");
+  return signedPath.startsWith("http") ? signedPath : `${CLEAN_SUPABASE_URL}/storage/v1${signedPath}`;
+}
+
 async function maybeReturnKnownFile(text, scopeId, displayName) {
-  if (!/(ส่ง.*ไฟล์|ไฟล์.*กลับ|ขอ.*ไฟล์|เอา.*ไฟล์)/i.test(text || "")) return null;
+  if (!/(ส่ง.*ไฟล์|ไฟล์.*กลับ|ขอ.*ไฟล์|เอา.*ไฟล์|ดาวน์โหลด.*ไฟล์)/i.test(text || "")) return null;
   const rows = (await supabaseRequest(
     "line_memories?select=file_name,mime_type,storage_bucket,storage_path,metadata,created_at" +
-    `&scope_id=eq.${encodeURIComponent(scopeId)}&message_type=eq.file&order=created_at.desc&limit=20`,
+    `&scope_id=eq.${encodeURIComponent(scopeId)}&message_type=eq.file&order=created_at.desc&limit=50`,
     { method: "GET" }
   )) || [];
-  const wanted = rows.find(r => r.file_name && (text || "").toLowerCase().includes(r.file_name.toLowerCase().replace(/\.[^.]+$/, ""))) || rows[0];
+  const normalizedText = String(text || "").toLowerCase().replace(/\s+/g, "");
+  const wanted = rows.find(r => {
+    if (!r.file_name) return false;
+    const full = r.file_name.toLowerCase().replace(/\s+/g, "");
+    const stem = full.replace(/\.[^.]+$/, "");
+    return normalizedText.includes(full) || normalizedText.includes(stem);
+  }) || rows[0];
   if (!wanted) return null;
+
   if (wanted.storage_bucket && wanted.storage_path) {
-    return `${displayName || "พี่"}ครับ อาร์ตมีไฟล์ต้นฉบับ “${wanted.file_name}” เก็บถาวรในคลัง TTM แล้วครับ แต่ LINE Messaging API ไม่รองรับการแนบไฟล์ทั่วไปกลับเป็นข้อความโดยตรง อาร์ตจึงยังส่ง attachment เดิมในห้องแชตไม่ได้ครับ`;
+    try {
+      const signedUrl = await createSupabaseSignedUrl(wanted.storage_bucket, wanted.storage_path, 3600);
+      return `${displayName || "พี่"}ครับ อาร์ตส่งไฟล์ “${wanted.file_name}” กลับมาให้แล้วครับ ✅\n\nเปิด/ดาวน์โหลดไฟล์ได้ที่ลิงก์นี้ (ลิงก์ใช้ได้ 1 ชั่วโมง):\n${signedUrl}`;
+    } catch (error) {
+      console.error("Create signed file URL error:", error);
+      return `${displayName || "พี่"}ครับ อาร์ตพบไฟล์ “${wanted.file_name}” ในคลัง TTM แล้ว แต่ตอนนี้สร้างลิงก์ดาวน์โหลดไม่สำเร็จครับ`;
+    }
   }
-  return `${displayName || "พี่"}ครับ อาร์ตจำไฟล์ “${wanted.file_name}” ได้ แต่ไฟล์นี้ถูกส่งมาก่อนเปิดระบบเก็บไฟล์ถาวร จึงมีเฉพาะข้อมูล/สรุปครับ กรุณาส่งต้นฉบับอีกครั้งหนึ่ง แล้วครั้งต่อไปอาร์ตจะเก็บต้นฉบับไว้ครับ`;
+  return `${displayName || "พี่"}ครับ อาร์ตจำไฟล์ “${wanted.file_name}” ได้ แต่ไฟล์นี้ถูกส่งมาก่อนเปิดระบบเก็บไฟล์ต้นฉบับ จึงมีเฉพาะข้อมูล/สรุปครับ กรุณาส่งต้นฉบับอีกครั้งหนึ่งครับ`;
 }
 
 function directIdentityReply(text, displayName) {
