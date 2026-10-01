@@ -1,5 +1,6 @@
 const express = require("express");
 const crypto = require("crypto");
+const XLSX = require("xlsx");
 
 const app = express();
 const liveFileCache = new Map();
@@ -270,17 +271,18 @@ async function askOpenAIImage(dataUrl, displayName) {
 }
 
 async function convertLatestAttachmentToExcel(scopeId, displayName) {
-  let source = (liveFileCache.get(String(scopeId || "unknown")) || [])[0] || null;
+  const cache = liveFileCache.get(String(scopeId || "unknown")) || [];
+  let source = cache.find(x => !/\.(csv|xlsx)$/i.test(String(x.fileName || ""))) || null;
 
   if (!source) {
     try {
       const rows = (await supabaseRequest(
         "line_memories?select=file_name,mime_type,storage_bucket,storage_path,created_at" +
-        `&scope_id=eq.${encodeURIComponent(scopeId)}&message_type=eq.file&order=created_at.desc&limit=1`,
+        `&scope_id=eq.${encodeURIComponent(scopeId)}&message_type=eq.file&order=created_at.desc&limit=20`,
         { method: "GET" }
       )) || [];
-      const row = rows[0];
-      if (row?.storage_bucket && row?.storage_path) {
+      const row = rows.find(r => !/\.(csv|xlsx)$/i.test(String(r.file_name || "")) && r.storage_bucket && r.storage_path);
+      if (row) {
         const bytes = await downloadSupabaseFile(row.storage_bucket, row.storage_path);
         source = { fileName: row.file_name || "document", mime: row.mime_type || "application/octet-stream", bytes };
         cacheLiveFile(scopeId, source.fileName, source.mime, source.bytes);
@@ -290,20 +292,22 @@ async function convertLatestAttachmentToExcel(scopeId, displayName) {
     }
   }
 
-  if (!source) return `${displayName || "พี่"}ครับ ยังไม่พบไฟล์ต้นฉบับสำหรับแปลง กรุณาส่ง PDF/รูปมาก่อนครับ`;
+  if (!source) {
+    return `${displayName || "พี่"}ครับ ยังไม่พบไฟล์ต้นฉบับสำหรับแปลง กรุณาส่ง PDF/รูปมาก่อนครับ`;
+  }
 
   let content;
   if (String(source.mime || "").startsWith("image/")) {
     const imageUrl = `data:${source.mime};base64,${source.bytes.toString("base64")}`;
     content = [
-      { type: "input_text", text: "แปลงเอกสารในภาพนี้เป็นตารางสำหรับ Excel ให้ครบถ้วนที่สุด ส่งกลับเฉพาะ CSV" },
+      { type: "input_text", text: "อ่านข้อความทั้งหมดจากเอกสารในภาพนี้ โดยเฉพาะตารางรายการสินค้า/งาน จำนวน หน่วย ราคาต่อหน่วย จำนวนเงิน รวมเงิน VAT และยอดสุทธิ แล้วส่งกลับเป็น JSON ตามรูปแบบที่กำหนด ห้ามตัดรายการที่มองเห็นได้" },
       { type: "input_image", image_url: imageUrl }
     ];
   } else {
     const uploaded = await uploadOpenAIFile(source.bytes, source.fileName, source.mime);
     content = [
       { type: "input_file", file_id: uploaded.id },
-      { type: "input_text", text: "แปลงเอกสารนี้เป็นตารางสำหรับ Excel ให้ครบถ้วนที่สุด ส่งกลับเฉพาะ CSV" }
+      { type: "input_text", text: "อ่านเอกสารนี้ทั้งหมด โดยเฉพาะตารางรายการ จำนวน หน่วย ราคาต่อหน่วย จำนวนเงิน รวมเงิน VAT และยอดสุทธิ แล้วส่งกลับเป็น JSON ตามรูปแบบที่กำหนด ห้ามตัดรายการที่อ่านได้" }
     ];
   }
 
@@ -312,23 +316,70 @@ async function convertLatestAttachmentToExcel(scopeId, displayName) {
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${CLEAN_OPENAI_KEY}` },
     body: JSON.stringify({
       model: process.env.OPENAI_FILE_MODEL || "gpt-5.4",
-      instructions: "Extract the document into a clean spreadsheet table. Return ONLY CSV text in UTF-8. Preserve Thai text, item descriptions, quantities, units, unit prices, totals, VAT and grand total. Do not use markdown fences and do not add explanations.",
+      instructions:
+        'Return ONLY valid JSON, no markdown. Schema: {"document":{"document_type":"","number":"","date":"","issuer":"","customer":"","customer_address":"","subtotal":"","vat":"","grand_total":"","amount_text":"","notes":""},"items":[{"no":"","description":"","qty":"","unit":"","unit_price":"","amount":""}]}. Extract every visible line item. Do not duplicate header rows. If a value is missing use empty string.',
       input: [{ role: "user", content }],
-      max_output_tokens: 5000
+      max_output_tokens: 6000
     })
   });
 
   if (!response.ok) throw new Error(`Excel conversion error ${response.status}: ${await response.text()}`);
   const data = await response.json();
-  let csv = extractOutputText(data).replace(/^\`\`\`(?:csv)?\s*/i, "").replace(/\s*\`\`\`$/, "").trim();
-  if (!csv) throw new Error("Excel conversion returned empty CSV");
+  let raw = extractOutputText(data).trim();
+  raw = raw.replace(/^\`\`\`(?:json)?\s*/i, "").replace(/\s*\`\`\`$/, "").trim();
 
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (e) {
+    console.error("Excel JSON parse error:", e, raw.slice(0, 1000));
+    throw new Error("Could not parse extracted document data");
+  }
+
+  const doc = parsed.document || {};
+  const items = Array.isArray(parsed.items) ? parsed.items : [];
+
+  const summaryRows = [
+    ["ประเภทเอกสาร", doc.document_type || ""],
+    ["เลขที่", doc.number || ""],
+    ["วันที่", doc.date || ""],
+    ["บริษัทผู้ออก", doc.issuer || ""],
+    ["ชื่อลูกค้า", doc.customer || ""],
+    ["ที่อยู่ลูกค้า", doc.customer_address || ""],
+    ["รวมเงิน", doc.subtotal || ""],
+    ["VAT", doc.vat || ""],
+    ["ยอดสุทธิ", doc.grand_total || ""],
+    ["จำนวนเงินตัวอักษร", doc.amount_text || ""],
+    ["หมายเหตุ", doc.notes || ""]
+  ];
+
+  const itemRows = items.map((x, i) => ({
+    "ลำดับ": x.no || String(i + 1),
+    "รายละเอียด": x.description || "",
+    "จำนวน": x.qty || "",
+    "หน่วย": x.unit || "",
+    "ราคาต่อหน่วย": x.unit_price || "",
+    "จำนวนเงิน": x.amount || ""
+  }));
+
+  const wb = XLSX.utils.book_new();
+  const wsSummary = XLSX.utils.aoa_to_sheet(summaryRows);
+  wsSummary["!cols"] = [{ wch: 22 }, { wch: 70 }];
+  XLSX.utils.book_append_sheet(wb, wsSummary, "สรุปเอกสาร");
+
+  const wsItems = XLSX.utils.json_to_sheet(itemRows.length ? itemRows : [{
+    "ลำดับ": "", "รายละเอียด": "ไม่พบรายการสินค้า/งานที่อ่านได้จากต้นฉบับ", "จำนวน": "", "หน่วย": "", "ราคาต่อหน่วย": "", "จำนวนเงิน": ""
+  }]);
+  wsItems["!cols"] = [{ wch: 10 }, { wch: 70 }, { wch: 12 }, { wch: 12 }, { wch: 18 }, { wch: 18 }];
+  XLSX.utils.book_append_sheet(wb, wsItems, "รายการ");
+
+  const xlsxBytes = Buffer.from(XLSX.write(wb, { type: "buffer", bookType: "xlsx" }));
   const stem = String(source.fileName || "converted").replace(/\.[^.]+$/, "");
-  const outName = `${stem}.csv`;
-  const bytes = Buffer.from("\uFEFF" + csv, "utf8");
-  cacheLiveFile(scopeId, outName, "text/csv; charset=utf-8", bytes);
+  const outName = `${stem}.xlsx`;
+  cacheLiveFile(scopeId, outName, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", xlsxBytes);
   const dl = createLiveDownload(scopeId, outName);
-  return `${displayName || "พี่"}ครับ แปลงเอกสารเป็นตาราง Excel ให้แล้วครับ ✅\n\nไฟล์: ${outName}\nดาวน์โหลด:\n${dl.url}\n\nเปิดด้วย Excel ได้ทันที ลิงก์ใช้ได้ 1 ชั่วโมงครับ`;
+
+  return `${displayName || "พี่"}ครับ แปลงเป็น Excel จริงให้แล้วครับ ✅\n\nไฟล์: ${outName}\nมี 2 ชีต: “สรุปเอกสาร” และ “รายการ”\nดาวน์โหลด:\n${dl.url}\n\nลิงก์ใช้ได้ 1 ชั่วโมงครับ`;
 }
 
 function wantsExcelConversion(text) {
