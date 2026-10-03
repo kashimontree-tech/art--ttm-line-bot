@@ -2,50 +2,112 @@
 <html lang="th">
 <head>
 <meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>ซักเลย • W13-01</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+<title>ซักเลย • สแกนจ่ายหน้าเครื่อง</title>
 <style>
-body{font-family:system-ui,-apple-system,sans-serif;background:#f4faf8;margin:0;color:#173b36}
-.wrap{max-width:460px;margin:0 auto;padding:24px}
-.card{background:#fff;border-radius:24px;padding:24px;box-shadow:0 12px 40px rgba(0,0,0,.08)}
-h1{margin:0 0 6px;font-size:28px}.sub{color:#6b7d79;margin-bottom:24px}
-.machine{background:#eaf8f3;border-radius:18px;padding:18px;margin-bottom:18px}
-.price{font-size:42px;font-weight:800;margin:6px 0}
-button{width:100%;border:0;border-radius:16px;padding:16px;font-size:18px;font-weight:700;background:#0f766e;color:white}
-button:disabled{opacity:.45}.status{margin-top:18px;padding:14px;border-radius:14px;background:#f3f4f6;white-space:pre-wrap}
-.small{font-size:12px;color:#7b8a87;margin-top:16px}
+:root{--g:#08753f;--g2:#0b8b4d;--y:#ffd21a;--blue:#0b60b5;--ink:#12352b;--muted:#6c7f78;--bg:#fff8d8}
+*{box-sizing:border-box} body{font-family:system-ui,-apple-system,"Noto Sans Thai",sans-serif;margin:0;background:linear-gradient(180deg,#ffdc29,#fff7cd 38%,#f5fbf8);color:var(--ink)}
+.wrap{max-width:520px;margin:auto;padding:18px 16px 44px}.hero{background:linear-gradient(135deg,#078243,#055f32);color:white;border-radius:26px;padding:22px;box-shadow:0 14px 35px rgba(5,95,50,.22)}
+.brand{font-size:40px;font-weight:900;line-height:1}.tag{margin-top:8px;font-weight:700}.badge{display:inline-block;background:var(--y);color:#8a4200;border-radius:999px;padding:6px 12px;font-weight:900;margin-top:12px}
+.card{background:white;border-radius:24px;padding:20px;margin-top:16px;box-shadow:0 9px 30px rgba(0,0,0,.08)} h2{margin:0 0 12px}
+.machine-title{display:flex;justify-content:space-between;gap:10px;align-items:center}.code{background:#e7f7ee;padding:6px 10px;border-radius:999px;font-weight:800;color:var(--g)}
+.option{width:100%;display:flex;align-items:center;justify-content:space-between;text-align:left;border:2px solid #e8eeeb;background:#fff;border-radius:18px;padding:15px 16px;margin:10px 0;font-size:17px;color:var(--ink)}
+.option.selected{border-color:var(--g);background:#ebf9f1}.option .price{font-size:25px;font-weight:900;color:var(--g)}
+.temp{font-size:14px;color:var(--muted)} .pay{width:100%;border:0;border-radius:18px;padding:16px;background:var(--g);color:white;font-size:19px;font-weight:900;margin-top:12px}.pay:disabled{opacity:.45}
+.status{margin-top:14px;padding:14px;border-radius:16px;background:#f3f5f4;white-space:pre-wrap;line-height:1.45}.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.machine-btn{display:block;text-decoration:none;background:white;border:2px solid #e6eee9;border-radius:18px;padding:14px;color:var(--ink);font-weight:800}.machine-btn small{display:block;color:var(--muted);font-weight:600;margin-top:3px}
+.action{display:block;text-decoration:none;text-align:center;border-radius:18px;padding:15px;font-weight:900;margin-top:10px}.iron{background:#ffbf00;color:#5f3a00}.admin{background:#eaf2ff;color:#124c8c}.footer{text-align:center;color:#687a73;font-size:12px;margin-top:22px}.hidden{display:none}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <div class="card">
-    <h1>ซักเลย</h1>
-    <div class="sub">ทดลองระบบชำระเงินหน้าเครื่อง</div>
-    <div class="machine">
-      <div>เครื่องซัก 13 kg #1</div>
-      <div><b>W13-01</b></div>
-      <div class="price">40 บาท</div>
-    </div>
-    <button id="pay">จำลองชำระ 40 บาท</button>
-    <div id="status" class="status">พร้อมทดสอบ</div>
-    <div class="small">โหมดทดสอบ: ยังไม่หักเงินจริงและยังไม่ต่อเครื่องซักจริง</div>
+  <div class="hero">
+    <div class="brand">ซักเลย</div>
+    <div class="tag">สะอาด หอม นุ่ม ครบจบในที่เดียว</div>
+    <div class="badge">เปิดบริการ 24 ชม.</div>
   </div>
+
+  <section id="catalog" class="card hidden">
+    <h2>เลือกเครื่องทดลอง</h2>
+    <div id="machineGrid" class="grid"></div>
+    <a class="action iron" href="/iron">👔 บริการรีด</a>
+    <a class="action admin" href="/admin">📊 สรุปรายได้ร้าน</a>
+  </section>
+
+  <section id="machineCard" class="card hidden">
+    <div class="machine-title">
+      <div>
+        <h2 id="machineName">เครื่อง</h2>
+        <div id="machineMeta" class="temp"></div>
+      </div>
+      <div id="machineCode" class="code"></div>
+    </div>
+    <div style="margin-top:14px;font-weight:800">เลือกรายการ</div>
+    <div id="options"></div>
+    <button id="pay" class="pay" disabled>เลือกรายการก่อน</button>
+    <div id="status" class="status">พร้อมใช้งาน</div>
+  </section>
+
+  <div class="footer">โหมดทดลองระบบ • ยังไม่หักเงินจริง • ก่อนต่อเครื่องจริงต้องยืนยันวงจร Coin/Pulse</div>
 </div>
 <script>
-const btn=document.getElementById('pay');
-const out=document.getElementById('status');
-btn.onclick=async()=>{
-  btn.disabled=true; out.textContent='กำลังสร้างรายการ...';
+const $=id=>document.getElementById(id);
+const parts=location.pathname.split('/').filter(Boolean);
+const machineCode=parts[0]==='m'?parts[1]:null;
+let selected=null, machine=null;
+
+async function loadCatalog(){
+  const r=await fetch('/api/catalog'); const data=await r.json();
+  $('catalog').classList.remove('hidden');
+  $('machineGrid').innerHTML=data.machines.map(m=>`
+    <a class="machine-btn" href="/m/${m.code}">
+      ${m.name}<small>${m.code} • ${m.type==='WASHER'?'ซัก':'อบ'}</small>
+    </a>`).join('');
+}
+
+function iconFor(o){
+  if(o.program==='COLD')return '🔵';
+  if(o.program==='WARM')return '🟡';
+  if(o.program==='HOT')return '🔴';
+  return '♨️';
+}
+
+async function loadMachine(){
+  const r=await fetch('/api/machine/'+encodeURIComponent(machineCode));
+  const data=await r.json(); if(!r.ok){$('machineCard').classList.remove('hidden');$('status').textContent='ไม่พบเครื่อง';return}
+  machine=data;
+  $('machineCard').classList.remove('hidden');
+  $('machineName').textContent=data.name;
+  $('machineCode').textContent=data.code;
+  $('machineMeta').textContent=(data.type==='WASHER'?'เครื่องซัก':'เครื่องอบ')+' • '+data.capacity+' kg';
+  $('options').innerHTML=data.options.map(o=>`
+    <button class="option" data-code="${o.code}">
+      <div><b>${iconFor(o)} ${o.name}</b><div class="temp">${o.label}</div></div>
+      <div class="price">${o.price}.-</div>
+    </button>`).join('');
+  document.querySelectorAll('.option').forEach(btn=>btn.onclick=()=>{
+    document.querySelectorAll('.option').forEach(x=>x.classList.remove('selected'));
+    btn.classList.add('selected');
+    selected=data.options.find(x=>x.code===btn.dataset.code);
+    $('pay').disabled=false;
+    $('pay').textContent='จำลองชำระ '+selected.price+' บาท';
+  });
+}
+
+$('pay').onclick=async()=>{
+  if(!selected||!machine)return;
+  $('pay').disabled=true; $('status').textContent='กำลังสร้างรายการ...';
   try{
-    const c=await fetch('/api/payment/create',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({machine_code:'W13-01'})});
-    const p=await c.json(); if(!c.ok) throw new Error(p.error||'create failed');
-    out.textContent='สร้างรายการแล้ว\n'+p.payment_ref+'\nกำลังจำลองการชำระ...';
+    const c=await fetch('/api/payment/create',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({machine_code:machine.code,option_code:selected.code})});
+    const p=await c.json(); if(!c.ok)throw new Error(p.error||'create failed');
+    $('status').textContent='รายการ '+p.payment_ref+'\n'+selected.label+' '+selected.price+' บาท\nกำลังจำลองการชำระ...';
     const m=await fetch('/api/payment/mock-paid',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({payment_ref:p.payment_ref})});
-    const r=await m.json(); if(!m.ok) throw new Error(r.error||'payment failed');
-    out.textContent='✅ ชำระสำเร็จ\n'+p.payment_ref+'\nระบบส่งคำสั่งเริ่มเครื่องและแจ้ง LINE แล้ว';
-  }catch(e){out.textContent='❌ '+e.message}
-  btn.disabled=false;
+    const result=await m.json(); if(!m.ok)throw new Error(result.error||'payment failed');
+    $('status').textContent='✅ ชำระสำเร็จ\n'+p.payment_ref+'\n'+selected.label+' • '+selected.price+' บาท\nรอ ESP32 รับคำสั่งจากระบบ';
+  }catch(e){$('status').textContent='❌ '+e.message}
+  $('pay').disabled=false;
 };
+
+machineCode?loadMachine():loadCatalog();
 </script>
 </body>
 </html>
