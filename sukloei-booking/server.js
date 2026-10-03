@@ -28,10 +28,9 @@ function bangkokIso(dateStr,timeStr){
 app.get('/health',(req,res)=>res.json({ok:true,time:new Date().toISOString()}));
 
 app.get('/api/machines',async(req,res)=>{
-  const {data,error}=await supabase.from('booking_machines')
-    .select('*').eq('active',true).order('machine_type').order('capacity_kg').order('machine_code');
+  const {data,error}=await supabase.rpc('booking_get_machines');
   if(error)return res.status(500).json({error:error.message});
-  res.json(data);
+  res.json(data||[]);
 });
 
 app.get('/api/availability',async(req,res)=>{
@@ -43,17 +42,16 @@ app.get('/api/availability',async(req,res)=>{
     const end=new Date(new Date(date+'T00:00:00+07:00').getTime()+24*60*60*1000).toISOString();
 
     const [{data:machines,error:mErr},{data:bookings,error:bErr}]=await Promise.all([
-      supabase.from('booking_machines').select('*').eq('active',true).order('machine_type').order('capacity_kg').order('machine_code'),
-      supabase.from('machine_bookings').select('*')
-        .lt('start_at',end).gt('end_at',start).eq('status','BOOKED')
+      supabase.rpc('booking_get_machines'),
+      supabase.rpc('booking_get_busy_slots',{p_date:date})
     ]);
     if(mErr)throw mErr;if(bErr)throw bErr;
 
     res.json({
       date,
-      machines:machines.map(m=>({
+      machines:(machines||[]).map(m=>({
         ...m,
-        bookings:bookings.filter(b=>b.machine_code===m.machine_code)
+        bookings:(bookings||[]).filter(b=>b.machine_code===m.machine_code)
       }))
     });
   }catch(e){res.status(500).json({error:e.message})}
@@ -65,66 +63,33 @@ app.post('/api/bookings',async(req,res)=>{
       machine_code,customer_name,customer_phone,date,time,note,
       home_service=false,home_address='',within_5km_confirmed=false
     }=req.body||{};
+
     if(!machine_code||!customer_name||!customer_phone||!date||!time)
       return res.status(400).json({error:'กรอกข้อมูลไม่ครบ'});
-    if(home_service && !String(home_address).trim())
-      return res.status(400).json({error:'กรุณากรอกที่อยู่สำหรับรับ-ส่ง'});
-    if(home_service && !within_5km_confirmed)
-      return res.status(400).json({error:'กรุณายืนยันว่าที่อยู่ในรัศมี 5 กม.'});
 
-    const {data:machine,error:mErr}=await supabase.from('booking_machines')
-      .select('*').eq('machine_code',machine_code).eq('active',true).single();
-    if(mErr||!machine)return res.status(404).json({error:'ไม่พบเครื่อง'});
-
-    const startAt=bangkokIso(date,time);
-    const startDate=new Date(startAt);
-    if(Number.isNaN(startDate.getTime()))return res.status(400).json({error:'วันเวลาผิด'});
-    const serviceMinutes=Number(machine.service_minutes||machine.duration_minutes||40);
-    const bufferMinutes=Number(machine.buffer_minutes||10);
-    const reservedMinutes=serviceMinutes+bufferMinutes;
-    const endAt=new Date(startDate.getTime()+reservedMinutes*60000).toISOString();
-
-    const {data:conflicts,error:cErr}=await supabase.from('machine_bookings')
-      .select('id,booking_ref,start_at,end_at')
-      .eq('machine_code',machine_code)
-      .eq('status','BOOKED')
-      .lt('start_at',endAt)
-      .gt('end_at',startAt);
-    if(cErr)throw cErr;
-    if(conflicts?.length)return res.status(409).json({error:'ช่วงเวลานี้มีคนจองแล้ว'});
-
-    const ref='BK-'+Date.now().toString(36).toUpperCase()+'-'+Math.random().toString(36).slice(2,6).toUpperCase();
-    const {data,error}=await supabase.from('machine_bookings').insert({
-      booking_ref:ref,
-      machine_code,
-      customer_name:String(customer_name).trim().slice(0,100),
-      customer_phone:String(customer_phone).trim().slice(0,30),
-      start_at:startAt,
-      end_at:endAt,
-      note:String(note||'').trim().slice(0,300),
-      home_service:Boolean(home_service),
-      home_address:home_service?String(home_address).trim().slice(0,500):null,
-      home_service_fee:home_service?40:0,
-      within_5km_confirmed:home_service?Boolean(within_5km_confirmed):false
-    }).select().single();
-    if(error)throw error;
-
-    res.json({
-      ok:true,
-      booking:data,
-      machine,
-      home_service:{
-        enabled:Boolean(home_service),
-        fee_baht:home_service?40:0,
-        radius_km:5
-      },
-      reservation:{
-        service_minutes:serviceMinutes,
-        buffer_minutes:bufferMinutes,
-        reserved_minutes:reservedMinutes
-      }
+    const {data,error}=await supabase.rpc('booking_create',{
+      p_machine_code:String(machine_code),
+      p_customer_name:String(customer_name),
+      p_customer_phone:String(customer_phone),
+      p_date:String(date),
+      p_time:String(time),
+      p_note:String(note||''),
+      p_home_service:Boolean(home_service),
+      p_home_address:String(home_address||''),
+      p_within_5km:Boolean(within_5km_confirmed)
     });
-  }catch(e){res.status(500).json({error:e.message})}
+
+    if(error){
+      const msg=String(error.message||'จองไม่สำเร็จ');
+      const status=msg.includes('มีคนจองแล้ว')?409:400;
+      return res.status(status).json({error:msg});
+    }
+
+    res.json({ok:true,...data});
+  }catch(e){
+    console.error(e);
+    res.status(500).json({error:e.message});
+  }
 });
 
 app.get('/api/bookings/:ref',async(req,res)=>{
