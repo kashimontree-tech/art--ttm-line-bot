@@ -36,12 +36,12 @@ app.get('/api/availability',async(req,res)=>{
     if(!/^\d{4}-\d{2}-\d{2}$/.test(date))return res.status(400).json({error:'invalid date'});
 
     const start=new Date(date+'T00:00:00+07:00').toISOString();
-    const end=new Date(date+'T23:59:59+07:00').toISOString();
+    const end=new Date(new Date(date+'T00:00:00+07:00').getTime()+24*60*60*1000).toISOString();
 
     const [{data:machines,error:mErr},{data:bookings,error:bErr}]=await Promise.all([
       supabase.from('booking_machines').select('*').eq('active',true).order('machine_type').order('capacity_kg').order('machine_code'),
       supabase.from('machine_bookings').select('*')
-        .gte('start_at',start).lte('start_at',end).eq('status','BOOKED')
+        .lt('start_at',end).gt('end_at',start).eq('status','BOOKED')
     ]);
     if(mErr)throw mErr;if(bErr)throw bErr;
 
@@ -68,7 +68,10 @@ app.post('/api/bookings',async(req,res)=>{
     const startAt=bangkokIso(date,time);
     const startDate=new Date(startAt);
     if(Number.isNaN(startDate.getTime()))return res.status(400).json({error:'วันเวลาผิด'});
-    const endAt=new Date(startDate.getTime()+machine.duration_minutes*60000).toISOString();
+    const serviceMinutes=Number(machine.service_minutes||machine.duration_minutes||40);
+    const bufferMinutes=Number(machine.buffer_minutes||10);
+    const reservedMinutes=serviceMinutes+bufferMinutes;
+    const endAt=new Date(startDate.getTime()+reservedMinutes*60000).toISOString();
 
     const {data:conflicts,error:cErr}=await supabase.from('machine_bookings')
       .select('id,booking_ref,start_at,end_at')
@@ -91,7 +94,11 @@ app.post('/api/bookings',async(req,res)=>{
     }).select().single();
     if(error)throw error;
 
-    res.json({ok:true,booking:data,machine});
+    res.json({ok:true,booking:data,machine,reservation:{
+      service_minutes:serviceMinutes,
+      buffer_minutes:bufferMinutes,
+      reserved_minutes:reservedMinutes
+    }});
   }catch(e){res.status(500).json({error:e.message})}
 });
 
