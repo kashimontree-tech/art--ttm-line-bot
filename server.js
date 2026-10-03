@@ -47,6 +47,42 @@ const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-5.4-mini";
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SECRET_KEY = process.env.SUPABASE_SECRET_KEY;
 
+let lastLinePushTarget = null;
+const SUKLOEI_RELAY_SECRET = process.env.SUKLOEI_RELAY_SECRET || "";
+
+app.post("/internal/sukloei-notify", express.json(), async (req, res) => {
+  try {
+    const supplied = String(req.headers["x-sukloei-secret"] || "");
+    if (!SUKLOEI_RELAY_SECRET || supplied !== SUKLOEI_RELAY_SECRET) {
+      return res.status(401).json({ error: "unauthorized" });
+    }
+    if (!CHANNEL_ACCESS_TOKEN) {
+      return res.status(500).json({ error: "LINE token missing" });
+    }
+    const target = req.body?.target_id || lastLinePushTarget;
+    const text = String(req.body?.text || "").trim();
+    if (!target) return res.status(409).json({ error: "no LINE target captured yet" });
+    if (!text) return res.status(400).json({ error: "text required" });
+
+    const r = await fetch("https://api.line.me/v2/bot/message/push", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${CHANNEL_ACCESS_TOKEN}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        to: target,
+        messages: [{ type: "text", text: text.slice(0, 4900) }]
+      })
+    });
+    if (!r.ok) return res.status(502).json({ error: `LINE ${r.status}: ${await r.text()}` });
+    return res.json({ ok: true, target_captured: true });
+  } catch (e) {
+    console.error("Sukloei relay error:", e);
+    return res.status(500).json({ error: e.message });
+  }
+});
+
 app.get("/", (req, res) => {
   res.status(200).send("Art TTM LINE Bot is running");
 });
@@ -78,6 +114,8 @@ app.post("/webhook", express.raw({ type: "application/json" }), async (req, res)
     res.sendStatus(200);
 
     for (const event of body.events || []) {
+      const source = event.source || {};
+      lastLinePushTarget = source.groupId || source.roomId || source.userId || lastLinePushTarget;
       if (event.type === "message" && event.replyToken) {
         if (event.message?.type === "text") await processTextEvent(event);
         else if (event.message?.type === "image") await processImageEvent(event);
