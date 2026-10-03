@@ -111,16 +111,13 @@ app.post('/api/bookings/:ref/cancel',async(req,res)=>{
 
 app.get('/api/admin/bookings',async(req,res)=>{
   const date=String(req.query.date||'');
-  let q=supabase.from('machine_bookings').select('*,booking_machines(*)').order('start_at',{ascending:true});
-  if(/^\d{4}-\d{2}-\d{2}$/.test(date)){
-    q=q.gte('start_at',new Date(date+'T00:00:00+07:00').toISOString())
-       .lte('start_at',new Date(date+'T23:59:59+07:00').toISOString());
-  }else{
-    q=q.gte('start_at',new Date(Date.now()-24*3600*1000).toISOString()).limit(200);
-  }
-  const {data,error}=await q;
+  const useDate=/^\d{4}-\d{2}-\d{2}$/.test(date)
+    ? date
+    : new Date(Date.now()+7*3600*1000).toISOString().slice(0,10);
+
+  const {data,error}=await supabase.rpc('booking_list_queue',{p_date:useDate});
   if(error)return res.status(500).json({error:error.message});
-  res.json(data);
+  res.json(data||[]);
 });
 
 app.get('/admin',(req,res)=>res.sendFile(path.join(__dirname,'public','admin.html')));
