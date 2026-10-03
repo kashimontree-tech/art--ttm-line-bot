@@ -48,6 +48,7 @@ const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SECRET_KEY = process.env.SUPABASE_SECRET_KEY;
 
 let lastLinePushTarget = null;
+const pendingSukloeiNotifications = [];
 const SUKLOEI_RELAY_SECRET = process.env.SUKLOEI_RELAY_SECRET || "";
 
 app.post("/internal/sukloei-notify", express.json(), async (req, res) => {
@@ -61,8 +62,12 @@ app.post("/internal/sukloei-notify", express.json(), async (req, res) => {
     }
     const target = req.body?.target_id || lastLinePushTarget;
     const text = String(req.body?.text || "").trim();
-    if (!target) return res.status(409).json({ error: "no LINE target captured yet" });
     if (!text) return res.status(400).json({ error: "text required" });
+    if (!target) {
+      pendingSukloeiNotifications.push(text.slice(0, 4900));
+      if (pendingSukloeiNotifications.length > 20) pendingSukloeiNotifications.shift();
+      return res.status(202).json({ ok: true, queued: true, reason: "waiting_for_line_target" });
+    }
 
     const r = await fetch("https://api.line.me/v2/bot/message/push", {
       method: "POST",
@@ -116,6 +121,28 @@ app.post("/webhook", express.raw({ type: "application/json" }), async (req, res)
     for (const event of body.events || []) {
       const source = event.source || {};
       lastLinePushTarget = source.groupId || source.roomId || source.userId || lastLinePushTarget;
+
+      if (lastLinePushTarget && pendingSukloeiNotifications.length && CHANNEL_ACCESS_TOKEN) {
+        const queued = pendingSukloeiNotifications.splice(0, pendingSukloeiNotifications.length);
+        for (const pendingText of queued) {
+          try {
+            const push = await fetch("https://api.line.me/v2/bot/message/push", {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${CHANNEL_ACCESS_TOKEN}`,
+                "Content-Type": "application/json"
+              },
+              body: JSON.stringify({
+                to: lastLinePushTarget,
+                messages: [{ type: "text", text: pendingText.slice(0, 4900) }]
+              })
+            });
+            if (!push.ok) console.error("Queued Sukloei LINE push failed:", push.status, await push.text());
+          } catch (pushError) {
+            console.error("Queued Sukloei LINE push error:", pushError);
+          }
+        }
+      }
       if (event.type === "message" && event.replyToken) {
         if (event.message?.type === "text") await processTextEvent(event);
         else if (event.message?.type === "image") await processImageEvent(event);
