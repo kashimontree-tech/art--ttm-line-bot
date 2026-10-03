@@ -14,7 +14,7 @@
 <body><div class="wrap">
 <div class="hero">
 <h1>ซักเลย</h1><div class="tag">จองเครื่องซัก–อบออนไลน์</div>
-<div class="pill">ซัก 36 นาที • อบ 40 นาที</div>
+<div class="pill">เปิด 24 ชั่วโมง • ซัก 40 นาที • อบ 50 นาที • เผื่อ 10 นาที</div>
 </div>
 
 <div class="card">
@@ -26,8 +26,8 @@
 <div class="card">
 <h2>2. เลือกเครื่อง <span style="font-size:14px;color:#6d7e77;font-weight:700">(ทั้งหมด 8 เครื่อง)</span></h2>
 <div class="summary" style="margin-bottom:12px">
-  🧺 เครื่องซัก 4 เครื่อง — 13 kg ×2, 18 kg ×2 • รอบละ 36 นาที<br>
-  ♨️ เครื่องอบ 4 เครื่อง — 13 kg ×2, 18 kg ×2 • รอบละ 40 นาที
+  🧺 เครื่องซัก 4 เครื่อง — 13 kg ×2, 18 kg ×2 • ซัก 40 นาที + เผื่อ 10 นาที<br>
+  ♨️ เครื่องอบ 4 เครื่อง — 13 kg ×2, 18 kg ×2 • อบ 50 นาที + เผื่อ 10 นาที
 </div>
 <div id="machines" class="machineGrid"></div>
 </div>
@@ -55,14 +55,14 @@
 <script>
 const $=id=>document.getElementById(id);
 const FALLBACK_MACHINES=[
-  {machine_code:'W13-01',name:'เครื่องซัก 13 kg #1',machine_type:'WASHER',capacity_kg:13,duration_minutes:36,bookings:[]},
-  {machine_code:'W13-02',name:'เครื่องซัก 13 kg #2',machine_type:'WASHER',capacity_kg:13,duration_minutes:36,bookings:[]},
-  {machine_code:'W18-01',name:'เครื่องซัก 18 kg #1',machine_type:'WASHER',capacity_kg:18,duration_minutes:36,bookings:[]},
-  {machine_code:'W18-02',name:'เครื่องซัก 18 kg #2',machine_type:'WASHER',capacity_kg:18,duration_minutes:36,bookings:[]},
-  {machine_code:'D13-01',name:'เครื่องอบ 13 kg #1',machine_type:'DRYER',capacity_kg:13,duration_minutes:40,bookings:[]},
-  {machine_code:'D13-02',name:'เครื่องอบ 13 kg #2',machine_type:'DRYER',capacity_kg:13,duration_minutes:40,bookings:[]},
-  {machine_code:'D18-01',name:'เครื่องอบ 18 kg #1',machine_type:'DRYER',capacity_kg:18,duration_minutes:40,bookings:[]},
-  {machine_code:'D18-02',name:'เครื่องอบ 18 kg #2',machine_type:'DRYER',capacity_kg:18,duration_minutes:40,bookings:[]}
+  {machine_code:'W13-01',name:'เครื่องซัก 13 kg #1',machine_type:'WASHER',capacity_kg:13,service_minutes:40,buffer_minutes:10,duration_minutes:50,bookings:[]},
+  {machine_code:'W13-02',name:'เครื่องซัก 13 kg #2',machine_type:'WASHER',capacity_kg:13,service_minutes:40,buffer_minutes:10,duration_minutes:50,bookings:[]},
+  {machine_code:'W18-01',name:'เครื่องซัก 18 kg #1',machine_type:'WASHER',capacity_kg:18,service_minutes:40,buffer_minutes:10,duration_minutes:50,bookings:[]},
+  {machine_code:'W18-02',name:'เครื่องซัก 18 kg #2',machine_type:'WASHER',capacity_kg:18,service_minutes:40,buffer_minutes:10,duration_minutes:50,bookings:[]},
+  {machine_code:'D13-01',name:'เครื่องอบ 13 kg #1',machine_type:'DRYER',capacity_kg:13,service_minutes:50,buffer_minutes:10,duration_minutes:60,bookings:[]},
+  {machine_code:'D13-02',name:'เครื่องอบ 13 kg #2',machine_type:'DRYER',capacity_kg:13,service_minutes:50,buffer_minutes:10,duration_minutes:60,bookings:[]},
+  {machine_code:'D18-01',name:'เครื่องอบ 18 kg #1',machine_type:'DRYER',capacity_kg:18,service_minutes:50,buffer_minutes:10,duration_minutes:60,bookings:[]},
+  {machine_code:'D18-02',name:'เครื่องอบ 18 kg #2',machine_type:'DRYER',capacity_kg:18,service_minutes:50,buffer_minutes:10,duration_minutes:60,bookings:[]}
 ];
 let data={machines:FALLBACK_MACHINES},selectedMachine=null,selectedTime=null;
 const today=new Date(); const local=new Date(today.getTime()-today.getTimezoneOffset()*60000).toISOString().slice(0,10);
@@ -93,21 +93,21 @@ function renderMachines(){
  $('machines').innerHTML=(data?.machines||[]).map(m=>`
  <button class="m ${selectedMachine?.machine_code===m.machine_code?'sel':''}" onclick="pickMachine('${m.machine_code}')">
  <b>${m.machine_type==='WASHER'?'🧺':'♨️'} ${m.name}</b>
- <small>${m.machine_code} • ${m.capacity_kg} kg • ${m.duration_minutes} นาที</small>
- <small>${m.machine_type==='WASHER'?'ซัก 1 รอบ':'อบ 1 รอบ'}</small>
+ <small>${m.machine_code} • ${m.capacity_kg} kg</small>
+ <small>${m.machine_type==='WASHER'?'ซัก '+(m.service_minutes||40)+' นาที':'อบ '+(m.service_minutes||50)+' นาที'} + เผื่อ ${m.buffer_minutes||10} นาที</small>
  </button>`).join('');
 }
 
 window.pickMachine=code=>{
  selectedMachine=data.machines.find(x=>x.machine_code===code);selectedTime=null;renderMachines();renderSlots();
- $('duration').textContent=(selectedMachine.machine_type==='WASHER'?'ซัก':'อบ')+' ใช้เวลา '+selectedMachine.duration_minutes+' นาที';
+ $('duration').textContent=(selectedMachine.machine_type==='WASHER'?'ซัก':'อบ')+' ใช้งานจริง '+(selectedMachine.service_minutes||(selectedMachine.machine_type==='WASHER'?40:50))+' นาที + เผื่อ '+(selectedMachine.buffer_minutes||10)+' นาที • ล็อกช่วงรวม '+selectedMachine.duration_minutes+' นาที';
  updateBookButton();
 }
 
 function renderSlots(){
  const m=selectedMachine;if(!m){$('slots').innerHTML='';return}
- const startMin=6*60,endMin=23*60;
- const step=20; let html='';
+ const startMin=0,endMin=24*60-10;
+ const step=10; let html='';
  const now=new Date();
  for(let min=startMin;min<=endMin;min+=step){
    const h=String(Math.floor(min/60)).padStart(2,'0'),mm=String(min%60).padStart(2,'0'),t=h+':'+mm;
@@ -120,7 +120,13 @@ function renderSlots(){
  $('slots').innerHTML=html;
 }
 
-window.pickTime=t=>{selectedTime=t;renderSlots();$('status').textContent='เลือก '+selectedMachine.name+' เวลา '+t+' น.\nใช้เวลา '+selectedMachine.duration_minutes+' นาที';updateBookButton()}
+window.pickTime=t=>{
+ selectedTime=t;renderSlots();
+ const start=new Date($('date').value+'T'+t+':00+07:00');
+ const end=new Date(start.getTime()+selectedMachine.duration_minutes*60000);
+ $('status').textContent='เลือก '+selectedMachine.name+'\nเวลา '+t+' - '+fmtHHMM(end)+' น.\nใช้งานจริง '+(selectedMachine.service_minutes||(selectedMachine.machine_type==='WASHER'?40:50))+' นาที + เผื่อ '+(selectedMachine.buffer_minutes||10)+' นาที';
+ updateBookButton()
+}
 
 function updateBookButton(){$('book').disabled=!(selectedMachine&&selectedTime&&$('name').value.trim()&&$('phone').value.trim())}
 $('name').oninput=updateBookButton;$('phone').oninput=updateBookButton;$('date').onchange=()=>{selectedTime=null;load()};
@@ -134,7 +140,7 @@ $('book').onclick=async()=>{
  const d=await r.json();
  if(!r.ok){$('status').textContent='❌ '+(d.error||'จองไม่สำเร็จ');await load();updateBookButton();return}
  const end=new Date(d.booking.end_at);
- $('status').textContent='✅ จองสำเร็จ\nเลขที่ '+d.booking.booking_ref+'\n'+d.machine.name+'\nเริ่ม '+selectedTime+' น. • เสร็จประมาณ '+fmtHHMM(end)+' น.';
+ $('status').textContent='✅ จองสำเร็จ\nเลขที่ '+d.booking.booking_ref+'\n'+d.machine.name+'\nจองช่วง '+selectedTime+' - '+fmtHHMM(end)+' น.\nใช้งานจริง '+d.reservation.service_minutes+' นาที + เผื่อ '+d.reservation.buffer_minutes+' นาที';
  selectedTime=null;await load();updateBookButton();
 };
 load();
