@@ -8,6 +8,12 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#f4f7f6;margin:0;
 </div><script>
 const $=id=>document.getElementById(id);const now=new Date();$('date').value=new Date(now.getTime()-now.getTimezoneOffset()*60000).toISOString().slice(0,10);
 function t(x){return new Date(x).toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit',hour12:false,timeZone:'Asia/Bangkok'})}
-async function load(){const r=await fetch('/api/admin/bookings?date='+$('date').value);const d=await r.json();$('list').innerHTML=d.length?d.map(x=>`<div class="row"><div><b>${t(x.start_at)}-${t(x.end_at)}</b></div><div>${x.machine_code}<br><small>${x.booking_machines?.name||''}</small></div><div>${x.customer_name}<br><small>${x.customer_phone}</small></div><div>${x.booking_ref}</div><div class="${x.status==='BOOKED'?'booked':'cancel'}">${x.status}</div></div>`).join(''):'ยังไม่มีรายการจองวันนี้'}
+async function load(){const r=await fetch('/api/admin/bookings?date='+$('date').value);const d=await r.json();$('list').innerHTML=d.length?d.map(x=>`<div class="row">
+<div><b>${t(x.start_at)}-${t(x.end_at)}</b></div>
+<div>${x.machine_code}<br><small>${x.booking_machines?.name||''}</small></div>
+<div>${x.customer_name}<br><small>${x.customer_phone}</small>${x.home_service?'<br><small>🚚 รับ–ส่ง +40 บาท<br>'+((x.home_address||'').replace(/</g,'&lt;'))+'</small>':''}</div>
+<div>${x.booking_ref}</div>
+<div class="${x.status==='BOOKED'?'booked':'cancel'}">${x.status}</div>
+</div>`).join(''):'ยังไม่มีรายการจองวันนี้'}
 $('date').onchange=load;load();setInterval(load,15000);
 </script></body></html>
