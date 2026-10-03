@@ -4,7 +4,15 @@
 body{font-family:system-ui,-apple-system,sans-serif;background:#f4f7f6;margin:0;color:#18352d}.wrap{max-width:980px;margin:auto;padding:20px}.top{display:flex;gap:12px;align-items:center;justify-content:space-between}.card{background:white;border-radius:20px;padding:18px;margin-top:14px;box-shadow:0 6px 20px rgba(0,0,0,.06)}input{padding:10px 12px;border:1px solid #d9e2de;border-radius:12px}.row{display:grid;grid-template-columns:120px 160px 1fr 140px 120px;gap:10px;padding:12px 0;border-bottom:1px solid #eee;align-items:center}.booked{color:#08753f;font-weight:800}.cancel{color:#a33}.back{color:#08753f;text-decoration:none;font-weight:800}@media(max-width:720px){.row{grid-template-columns:1fr 1fr}.row>*{min-width:0}}
 </style></head><body><div class="wrap">
 <div class="top"><a class="back" href="/">← หน้าจอง</a><input id="date" type="date"/></div>
-<h1>ตารางคิวจองเครื่อง</h1><div style="color:#6d7e77;margin-bottom:8px">แสดงเฉพาะข้อมูลคิว ไม่แสดงเบอร์โทรหรือที่อยู่ลูกค้า</div><div id="list" class="card">กำลังโหลด...</div>
+<h1>ตารางคิวจองเครื่อง</h1>
+<div style="color:#6d7e77;margin-bottom:8px">หน้าเจ้าของร้าน • แสดงชื่อและเบอร์โทรผู้จอง</div>
+<div id="pinBox" class="card" style="margin-bottom:14px">
+  <label style="display:block;font-weight:800;margin-bottom:8px">PIN เจ้าของร้าน</label>
+  <input id="pin" type="password" inputmode="numeric" maxlength="6" placeholder="กรอก PIN 6 หลัก" style="width:100%;padding:12px;border:1px solid #d9e2de;border-radius:12px"/>
+  <button id="unlock" style="margin-top:10px;width:100%;padding:12px;border:0;border-radius:12px;background:#08753f;color:#fff;font-weight:800">เปิดดูคิว</button>
+  <div id="pinStatus" style="margin-top:8px;color:#a33"></div>
+</div>
+<div id="list" class="card">กรอก PIN เพื่อดูคิว</div>
 </div><script>
 const $=id=>document.getElementById(id);
 const params=new URLSearchParams(location.search);
@@ -13,13 +21,34 @@ const now=new Date();
 const defaultDate=new Date(now.getTime()-now.getTimezoneOffset()*60000).toISOString().slice(0,10);
 $('date').value=/^\d{4}-\d{2}-\d{2}$/.test(qsDate||'')?qsDate:defaultDate;
 function t(x){return new Date(x).toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit',hour12:false,timeZone:'Asia/Bangkok'})}
-async function load(){const r=await fetch('/api/admin/bookings?date='+$('date').value);const d=await r.json();$('list').innerHTML=d.length?d.map(x=>`<div class="row">
+let adminPin=sessionStorage.getItem('sukloeiAdminPin')||'';
+if(adminPin)$('pin').value=adminPin;
+
+async function load(){
+ if(!adminPin){$('list').innerHTML='กรอก PIN เพื่อดูคิว';return}
+ const r=await fetch('/api/admin/bookings?date='+$('date').value,{headers:{'x-admin-pin':adminPin}});
+ const d=await r.json();
+ if(r.status===401){
+   sessionStorage.removeItem('sukloeiAdminPin');adminPin='';
+   $('pinStatus').textContent='PIN ไม่ถูกต้อง';
+   $('list').innerHTML='กรอก PIN เพื่อดูคิว';
+   return;
+ }
+ $('pinStatus').textContent='';
+ $('list').innerHTML=Array.isArray(d)&&d.length?d.map(x=>`<div class="row">
 <div><b>${t(x.start_at)}-${t(x.end_at)}</b></div>
 <div>${x.machine_code}<br><small>${x.machine_name||''}</small></div>
-<div>${x.machine_type==='WASHER'?'🧺 ซัก':'♨️ อบ'} ${x.capacity_kg||''} kg${x.home_service?'<br><small>🚚 มีบริการรับ–ส่ง</small>':''}</div>
+<div><b>${x.customer_name||'-'}</b><br><small>☎ ${x.customer_phone||'-'}</small><br><small>${x.machine_type==='WASHER'?'🧺 ซัก':'♨️ อบ'} ${x.capacity_kg||''} kg${x.home_service?' • 🚚 รับ–ส่ง':''}</small></div>
 <div>${x.booking_ref}</div>
 <div class="${x.status==='BOOKED'?'booked':'cancel'}">${x.status}</div>
-</div>`).join(''):'ยังไม่มีรายการจองวันนี้'}
+</div>`).join(''):'ยังไม่มีรายการจองวันนี้'
+}
+
+$('unlock').onclick=()=>{
+ adminPin=$('pin').value.trim();
+ sessionStorage.setItem('sukloeiAdminPin',adminPin);
+ load();
+};
 $('date').onchange=()=>{
  const d=$('date').value;
  history.replaceState(null,'','/admin?date='+encodeURIComponent(d));
