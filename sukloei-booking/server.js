@@ -15,6 +15,10 @@ const SUPABASE_URL=process.env.SUPABASE_URL||'https://mmsspzwobyrojzqdiynh.supab
 const SUPABASE_KEY=process.env.SUPABASE_SERVICE_ROLE_KEY||process.env.SUPABASE_PUBLISHABLE_KEY||'sb_publishable_eZ4L-l-oYOjh4hx_MgkSmA_jHBKlOGg';
 const supabase=createClient(SUPABASE_URL,SUPABASE_KEY,{auth:{persistSession:false}});
 
+app.use((req,res,next)=>{
+  res.set('Cache-Control','no-store');
+  next();
+});
 app.use(express.static(path.join(__dirname,'public')));
 
 function bangkokIso(dateStr,timeStr){
