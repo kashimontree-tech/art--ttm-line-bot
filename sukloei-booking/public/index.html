@@ -20,7 +20,7 @@
 <div class="card">
 <h2>1. เลือกวันที่</h2>
 <input id="date" type="date"/>
-<div class="small">จองล่วงหน้าได้ 24 ชั่วโมง • เลือกเป็นช่วงละ 1 ชั่วโมง</div>
+<div class="small">เลือกวันที่ก่อน แล้วเลือกช่วงเวลาได้ครบ 24 ชั่วโมง • ช่วงที่มีคนจองแล้วเท่านั้นที่จะกดไม่ได้</div>
 </div>
 
 <div class="card">
@@ -45,6 +45,24 @@
 <div><label>เบอร์โทร</label><input id="phone" inputmode="tel" placeholder="08x-xxx-xxxx"/></div>
 </div>
 <label>หมายเหตุ</label><textarea id="note" rows="2" placeholder="เช่น มาถึงก่อนเวลา 5 นาที"></textarea>
+
+<div class="summary" style="margin-top:16px">
+  <label style="margin:0;display:flex;gap:10px;align-items:flex-start">
+    <input id="homeService" type="checkbox" style="width:22px;height:22px;margin-top:2px"/>
+    <span><b>🚚 บริการรับซัก/อบและส่งถึงบ้าน</b><br>
+    <span class="small">เฉพาะพื้นที่ภายในรัศมี 5 กม. • ค่าบริการเพิ่ม 40 บาท</span></span>
+  </label>
+  <div id="homeFields" style="display:none;margin-top:12px">
+    <label>ที่อยู่รับ–ส่ง</label>
+    <textarea id="homeAddress" rows="3" placeholder="บ้านเลขที่ / หมู่บ้าน / ซอย / จุดสังเกต"></textarea>
+    <label style="display:flex;gap:8px;align-items:center;font-weight:700">
+      <input id="within5km" type="checkbox" style="width:20px;height:20px"/>
+      ยืนยันว่าที่อยู่อยู่ภายในรัศมี 5 กม. จากร้าน
+    </label>
+    <div style="font-weight:900;color:#08753f">ค่ารับ–ส่ง +40 บาท</div>
+  </div>
+</div>
+
 <button id="book" class="primary" disabled>ยืนยันการจอง</button>
 <div id="status" class="status">ยังไม่ได้เลือกเวลา</div>
 </div>
@@ -119,9 +137,7 @@ function renderSlots(){
    const busy=(m.bookings||[]).some(b=>
      rangesOverlap(slotStart.getTime(),bookingWindowEnd.getTime(),new Date(b.start_at).getTime(),new Date(b.end_at).getTime())
    );
-   const past=bookingWindowEnd.getTime()<=Date.now();
-
-   html+=`<button class="slot ${busy||past?'busy':''} ${selectedTime===t?'sel':''}" ${busy||past?'disabled':''}
+   html+=`<button class="slot ${busy?'busy':''} ${selectedTime===t?'sel':''}" ${busy?'disabled':''}
      onclick="pickTime('${t}')">${label}</button>`;
  }
  $('slots').innerHTML=html;
@@ -141,21 +157,37 @@ window.pickTime=t=>{
  updateBookButton()
 }
 
-function updateBookButton(){$('book').disabled=!(selectedMachine&&selectedTime&&$('name').value.trim()&&$('phone').value.trim())}
-$('name').oninput=updateBookButton;$('phone').oninput=updateBookButton;$('date').onchange=()=>{selectedTime=null;load()};
+function updateBookButton(){
+ const home=$('homeService').checked;
+ const homeReady=!home || ($('homeAddress').value.trim() && $('within5km').checked);
+ $('book').disabled=!(selectedMachine&&selectedTime&&$('name').value.trim()&&$('phone').value.trim()&&homeReady);
+ $('book').textContent=home?'ยืนยันการจอง + บริการรับ–ส่ง 40 บาท':'ยืนยันการจอง';
+}
+$('name').oninput=updateBookButton;
+$('phone').oninput=updateBookButton;
+$('date').onchange=()=>{selectedTime=null;load()};
+$('homeService').onchange=()=>{
+ $('homeFields').style.display=$('homeService').checked?'block':'none';
+ updateBookButton();
+};
+$('homeAddress').oninput=updateBookButton;
+$('within5km').onchange=updateBookButton;
 
 $('book').onclick=async()=>{
  $('book').disabled=true;$('status').textContent='กำลังบันทึกการจอง...';
  const r=await fetch('/api/bookings',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({
    machine_code:selectedMachine.machine_code,customer_name:$('name').value,customer_phone:$('phone').value,
-   date:$('date').value,time:selectedTime,note:$('note').value
+   date:$('date').value,time:selectedTime,note:$('note').value,
+   home_service:$('homeService').checked,
+   home_address:$('homeAddress').value,
+   within_5km_confirmed:$('within5km').checked
  })});
  const d=await r.json();
  if(!r.ok){$('status').textContent='❌ '+(d.error||'จองไม่สำเร็จ');await load();updateBookButton();return}
  const end=new Date(d.booking.end_at);
  const bookedStart=new Date(d.booking.start_at);
  const bookedWindowEnd=new Date(bookedStart.getTime()+60*60000);
- $('status').textContent='✅ จองสำเร็จ\nเลขที่ '+d.booking.booking_ref+'\n'+d.machine.name+'\nช่วงจอง '+selectedTime+' - '+fmtHHMM(bookedWindowEnd)+' น.\nใช้งานจริง '+d.reservation.service_minutes+' นาที + เผื่อ '+d.reservation.buffer_minutes+' นาที';
+ $('status').textContent='✅ จองสำเร็จ\nเลขที่ '+d.booking.booking_ref+'\n'+d.machine.name+'\nช่วงจอง '+selectedTime+' - '+fmtHHMM(bookedWindowEnd)+' น.\nใช้งานจริง '+d.reservation.service_minutes+' นาที + เผื่อ '+d.reservation.buffer_minutes+' นาที'+(d.home_service.enabled?'\n🚚 รับ–ส่งถึงบ้าน +40 บาท (ภายใน 5 กม.)':'');
  selectedTime=null;await load();updateBookButton();
 };
 load();
