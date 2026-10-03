@@ -33,10 +33,15 @@ void connectWiFi() {
   while (WiFi.status() != WL_CONNECTED) delay(500);
 }
 
-void pulseRelay(int pulseMs) {
-  digitalWrite(RELAY_PIN, HIGH);
-  delay(pulseMs);
-  digitalWrite(RELAY_PIN, LOW);
+void pulseRelay(int pulseMs, int pulseCount) {
+  if (pulseCount < 1) pulseCount = 1;
+  if (pulseCount > 12) pulseCount = 12;
+  for (int i = 0; i < pulseCount; i++) {
+    digitalWrite(RELAY_PIN, HIGH);
+    delay(pulseMs);
+    digitalWrite(RELAY_PIN, LOW);
+    if (i < pulseCount - 1) delay(180);
+  }
 }
 
 bool postAck(const String& commandId, const String& status) {
@@ -85,6 +90,7 @@ void pollCommand() {
   String commandId = doc["command"]["command_id"] | "";
   String action = doc["command"]["action"] | "";
   int pulseMs = doc["command"]["pulse_ms"] | 50;
+  int pulseCount = doc["command"]["pulse_count"] | 1;
 
   if (commandId.length() == 0 || commandId == lastCommandId) return;
 
@@ -93,7 +99,7 @@ void pollCommand() {
     if (pulseMs > 150) pulseMs = 150;
 
     digitalWrite(STATUS_LED, HIGH);
-    pulseRelay(pulseMs);
+    pulseRelay(pulseMs, pulseCount);
     lastCommandId = commandId;
     postAck(commandId, "STARTED");
     digitalWrite(STATUS_LED, LOW);
