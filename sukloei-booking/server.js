@@ -57,9 +57,16 @@ app.get('/api/availability',async(req,res)=>{
 
 app.post('/api/bookings',async(req,res)=>{
   try{
-    const {machine_code,customer_name,customer_phone,date,time,note}=req.body||{};
+    const {
+      machine_code,customer_name,customer_phone,date,time,note,
+      home_service=false,home_address='',within_5km_confirmed=false
+    }=req.body||{};
     if(!machine_code||!customer_name||!customer_phone||!date||!time)
       return res.status(400).json({error:'กรอกข้อมูลไม่ครบ'});
+    if(home_service && !String(home_address).trim())
+      return res.status(400).json({error:'กรุณากรอกที่อยู่สำหรับรับ-ส่ง'});
+    if(home_service && !within_5km_confirmed)
+      return res.status(400).json({error:'กรุณายืนยันว่าที่อยู่ในรัศมี 5 กม.'});
 
     const {data:machine,error:mErr}=await supabase.from('booking_machines')
       .select('*').eq('machine_code',machine_code).eq('active',true).single();
@@ -90,15 +97,29 @@ app.post('/api/bookings',async(req,res)=>{
       customer_phone:String(customer_phone).trim().slice(0,30),
       start_at:startAt,
       end_at:endAt,
-      note:String(note||'').trim().slice(0,300)
+      note:String(note||'').trim().slice(0,300),
+      home_service:Boolean(home_service),
+      home_address:home_service?String(home_address).trim().slice(0,500):null,
+      home_service_fee:home_service?40:0,
+      within_5km_confirmed:home_service?Boolean(within_5km_confirmed):false
     }).select().single();
     if(error)throw error;
 
-    res.json({ok:true,booking:data,machine,reservation:{
-      service_minutes:serviceMinutes,
-      buffer_minutes:bufferMinutes,
-      reserved_minutes:reservedMinutes
-    }});
+    res.json({
+      ok:true,
+      booking:data,
+      machine,
+      home_service:{
+        enabled:Boolean(home_service),
+        fee_baht:home_service?40:0,
+        radius_km:5
+      },
+      reservation:{
+        service_minutes:serviceMinutes,
+        buffer_minutes:bufferMinutes,
+        reserved_minutes:reservedMinutes
+      }
+    });
   }catch(e){res.status(500).json({error:e.message})}
 });
 
