@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="th">
+<head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>ซักเลย • Dashboard</title>
+<style>
+body{font-family:system-ui,-apple-system,sans-serif;margin:0;background:#f4f7f6;color:#18352d}.wrap{max-width:760px;margin:auto;padding:20px}.top{display:flex;justify-content:space-between;align-items:center}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}.kpi{background:#fff;border-radius:18px;padding:18px;box-shadow:0 6px 20px rgba(0,0,0,.06)}.num{font-size:30px;font-weight:900;color:#08753f}.card{background:#fff;border-radius:18px;padding:18px;margin-top:14px}.row{padding:10px 0;border-bottom:1px solid #eee;font-size:14px}.back{color:#08753f;text-decoration:none;font-weight:800}.refresh{border:0;background:#08753f;color:#fff;padding:10px 14px;border-radius:12px;font-weight:800}
+</style></head>
+<body><div class="wrap">
+<div class="top"><a class="back" href="/">← หน้าแรก</a><button class="refresh" onclick="load()">รีเฟรช</button></div>
+<h1>📊 ซักเลย Dashboard</h1>
+<div class="grid">
+<div class="kpi"><div>รายได้เครื่อง</div><div id="machineRev" class="num">0</div><div>บาท</div></div>
+<div class="kpi"><div>รายได้งานรีด</div><div id="ironRev" class="num">0</div><div>บาท</div></div>
+<div class="kpi"><div>ธุรกรรมเครื่อง</div><div id="tx" class="num">0</div><div>รายการ</div></div>
+<div class="kpi"><div>รวมทั้งหมด</div><div id="total" class="num">0</div><div>บาท</div></div>
+</div>
+<div class="card"><h3>รายการชำระล่าสุด</h3><div id="payments"></div></div>
+<div class="card"><h3>งานรีดล่าสุด</h3><div id="irons"></div></div>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+async function load(){
+ const r=await fetch('/api/admin/summary');const d=await r.json();
+ $('machineRev').textContent=d.machine_revenue||0;$('ironRev').textContent=d.iron_revenue||0;$('tx').textContent=d.paid_transactions||0;$('total').textContent=d.total_revenue||0;
+ $('payments').innerHTML=(d.recent_payments||[]).map(x=>`<div class="row"><b>${x.machine_code}</b> • ${x.option_code||'-'} • ${x.amount} บาท<br><small>${x.payment_ref}</small></div>`).join('')||'ยังไม่มีข้อมูล';
+ $('irons').innerHTML=(d.recent_iron_orders||[]).map(x=>`<div class="row"><b>${x.order_ref}</b> • ${x.total} บาท</div>`).join('')||'ยังไม่มีข้อมูล';
+}
+load();setInterval(load,15000);
+</script></body></html>
