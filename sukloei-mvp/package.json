@@ -1,0 +1,16 @@
+{
+  "name": "sukloei-mvp",
+  "version": "0.2.0",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.49.1",
+    "dotenv": "^16.4.7",
+    "express": "^5.1.0",
+    "mqtt": "^5.10.4",
+    "qrcode": "^1.5.4",
+    "uuid": "^11.1.0"
+  }
+}
