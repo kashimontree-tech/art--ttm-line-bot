@@ -67,7 +67,7 @@
 <div id="status" class="status">ยังไม่ได้เลือกเวลา</div>
 </div>
 
-<a class="admin" href="/admin">ดูตารางจองร้าน →</a>
+<a id="adminLink" class="admin" href="/admin">ดูตารางจองร้าน →</a>
 </div>
 
 <script>
@@ -85,6 +85,7 @@ const FALLBACK_MACHINES=[
 let data={machines:FALLBACK_MACHINES},selectedMachine=null,selectedTime=null;
 const today=new Date(); const local=new Date(today.getTime()-today.getTimezoneOffset()*60000).toISOString().slice(0,10);
 $('date').value=local;$('date').min=local;
+$('adminLink').href='/admin?date='+encodeURIComponent($('date').value);
 
 function fmtHHMM(d){return d.toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit',hour12:false,timeZone:'Asia/Bangkok'})}
 function toMinutes(t){const [h,m]=t.split(':').map(Number);return h*60+m}
@@ -165,7 +166,11 @@ function updateBookButton(){
 }
 $('name').oninput=updateBookButton;
 $('phone').oninput=updateBookButton;
-$('date').onchange=()=>{selectedTime=null;load()};
+$('date').onchange=()=>{
+ selectedTime=null;
+ $('adminLink').href='/admin?date='+encodeURIComponent($('date').value);
+ load();
+};
 $('homeService').onchange=()=>{
  $('homeFields').style.display=$('homeService').checked?'block':'none';
  updateBookButton();
@@ -187,6 +192,7 @@ $('book').onclick=async()=>{
  const end=new Date(d.booking.end_at);
  const bookedStart=new Date(d.booking.start_at);
  const bookedWindowEnd=new Date(bookedStart.getTime()+60*60000);
+ $('adminLink').href='/admin?date='+encodeURIComponent($('date').value);
  $('status').textContent='✅ จองสำเร็จ\nเลขที่ '+d.booking.booking_ref+'\n'+d.machine.name+'\nช่วงจอง '+selectedTime+' - '+fmtHHMM(bookedWindowEnd)+' น.\nใช้งานจริง '+d.reservation.service_minutes+' นาที + เผื่อ '+d.reservation.buffer_minutes+' นาที'+(d.home_service.enabled?'\n🚚 รับ–ส่งถึงบ้าน +40 บาท (ภายใน 5 กม.)':'');
  selectedTime=null;await load();updateBookButton();
 };
