@@ -36,17 +36,31 @@ if(process.env.MQTT_URL){
 async function linePush(text){
   const token=process.env.LINE_CHANNEL_ACCESS_TOKEN;
   const to=process.env.LINE_TARGET_ID;
-  if(!token||!to){
-    console.log('[LINE disabled]\n'+text);
-    return {sent:false,reason:'LINE env missing'};
+
+  if(token&&to){
+    const r=await fetch('https://api.line.me/v2/bot/message/push',{
+      method:'POST',
+      headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+      body:JSON.stringify({to,messages:[{type:'text',text}]})
+    });
+    if(!r.ok) throw new Error('LINE '+r.status+' '+await r.text());
+    return {sent:true,mode:'direct'};
   }
-  const r=await fetch('https://api.line.me/v2/bot/message/push',{
-    method:'POST',
-    headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
-    body:JSON.stringify({to,messages:[{type:'text',text}]})
-  });
-  if(!r.ok) throw new Error('LINE '+r.status+' '+await r.text());
-  return {sent:true};
+
+  const relayUrl=process.env.LINE_RELAY_URL;
+  const relaySecret=process.env.SUKLOEI_RELAY_SECRET;
+  if(relayUrl&&relaySecret){
+    const r=await fetch(relayUrl,{
+      method:'POST',
+      headers:{'Content-Type':'application/json','x-sukloei-secret':relaySecret},
+      body:JSON.stringify({text})
+    });
+    if(!r.ok) throw new Error('LINE relay '+r.status+' '+await r.text());
+    return {sent:true,mode:'relay'};
+  }
+
+  console.log('[LINE disabled]\n'+text);
+  return {sent:false,reason:'LINE env missing'};
 }
 
 async function savePayment(p){
