@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="th"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>ซักเลย • ตารางจอง</title><style>
+body{font-family:system-ui,-apple-system,sans-serif;background:#f4f7f6;margin:0;color:#18352d}.wrap{max-width:980px;margin:auto;padding:20px}.top{display:flex;gap:12px;align-items:center;justify-content:space-between}.card{background:white;border-radius:20px;padding:18px;margin-top:14px;box-shadow:0 6px 20px rgba(0,0,0,.06)}input{padding:10px 12px;border:1px solid #d9e2de;border-radius:12px}.row{display:grid;grid-template-columns:120px 160px 1fr 140px 120px;gap:10px;padding:12px 0;border-bottom:1px solid #eee;align-items:center}.booked{color:#08753f;font-weight:800}.cancel{color:#a33}.back{color:#08753f;text-decoration:none;font-weight:800}@media(max-width:720px){.row{grid-template-columns:1fr 1fr}.row>*{min-width:0}}
+</style></head><body><div class="wrap">
+<div class="top"><a class="back" href="/">← หน้าจอง</a><input id="date" type="date"/></div>
+<h1>ตารางจองเครื่อง</h1><div id="list" class="card">กำลังโหลด...</div>
+</div><script>
+const $=id=>document.getElementById(id);const now=new Date();$('date').value=new Date(now.getTime()-now.getTimezoneOffset()*60000).toISOString().slice(0,10);
+function t(x){return new Date(x).toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit',hour12:false,timeZone:'Asia/Bangkok'})}
+async function load(){const r=await fetch('/api/admin/bookings?date='+$('date').value);const d=await r.json();$('list').innerHTML=d.length?d.map(x=>`<div class="row"><div><b>${t(x.start_at)}-${t(x.end_at)}</b></div><div>${x.machine_code}<br><small>${x.booking_machines?.name||''}</small></div><div>${x.customer_name}<br><small>${x.customer_phone}</small></div><div>${x.booking_ref}</div><div class="${x.status==='BOOKED'?'booked':'cancel'}">${x.status}</div></div>`).join(''):'ยังไม่มีรายการจองวันนี้'}
+$('date').onchange=load;load();setInterval(load,15000);
+</script></body></html>
