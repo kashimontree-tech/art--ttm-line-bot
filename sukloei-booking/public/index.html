@@ -8,7 +8,7 @@
 :root{--g:#08753f;--g2:#0a8d4d;--y:#ffd51f;--ink:#17392e;--muted:#6d7e77;--bg:#f5fbf8}
 *{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,"Noto Sans Thai",sans-serif;background:linear-gradient(180deg,#ffda22,#fff6c8 30%,#f4fbf8);color:var(--ink)}
 .wrap{max-width:760px;margin:auto;padding:18px}.hero{background:linear-gradient(135deg,var(--g2),#075b33);color:#fff;border-radius:28px;padding:24px;box-shadow:0 16px 40px rgba(0,0,0,.14)}h1{margin:0;font-size:38px}.tag{font-weight:700;margin-top:8px}.pill{display:inline-block;margin-top:12px;background:var(--y);color:#704600;padding:7px 12px;border-radius:999px;font-weight:900}
-.card{background:#fff;border-radius:24px;padding:20px;margin-top:16px;box-shadow:0 8px 28px rgba(0,0,0,.08)}label{display:block;font-weight:800;margin:12px 0 6px}input,select,textarea{width:100%;padding:13px 14px;border:1px solid #d9e4df;border-radius:14px;font-size:16px;background:#fff}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.machineGrid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}.m{border:2px solid #e2ebe7;background:#fff;border-radius:17px;padding:13px;text-align:left;color:var(--ink)}.m.sel{border-color:var(--g);background:#eaf9f1}.m b{display:block}.m small{color:var(--muted)}.slots{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.slot{padding:11px 6px;border:1px solid #dbe6e1;border-radius:12px;background:#fff}.slot.busy{opacity:.35;text-decoration:line-through}.slot.sel{background:var(--g);color:white}.primary{width:100%;border:0;border-radius:16px;padding:16px;background:var(--g);color:white;font-size:18px;font-weight:900;margin-top:16px}.primary:disabled{opacity:.45}.status{margin-top:14px;padding:14px;border-radius:14px;background:#f2f5f4;white-space:pre-wrap}.summary{background:#edf8f2;border-radius:16px;padding:14px;margin-top:12px}.small{font-size:12px;color:var(--muted)}.admin{display:block;text-align:center;margin-top:16px;color:var(--g);font-weight:800;text-decoration:none}@media(max-width:600px){.grid{grid-template-columns:1fr}.slots{grid-template-columns:repeat(3,1fr)}}
+.card{background:#fff;border-radius:24px;padding:20px;margin-top:16px;box-shadow:0 8px 28px rgba(0,0,0,.08)}label{display:block;font-weight:800;margin:12px 0 6px}input,select,textarea{width:100%;padding:13px 14px;border:1px solid #d9e4df;border-radius:14px;font-size:16px;background:#fff}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.machineGrid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}.m{border:2px solid #e2ebe7;background:#fff;border-radius:17px;padding:13px;text-align:left;color:var(--ink)}.m.sel{border-color:var(--g);background:#eaf9f1}.m b{display:block}.m small{color:var(--muted)}.slots{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.slot{padding:14px 8px;border:2px solid #dbe6e1;border-radius:14px;background:#fff;font-size:15px;font-weight:800;color:var(--ink)}.slot.busy{opacity:.35;text-decoration:line-through;background:#f3f3f3}.slot.sel{background:var(--g);color:white;border-color:var(--g)}.primary{width:100%;border:0;border-radius:16px;padding:16px;background:var(--g);color:white;font-size:18px;font-weight:900;margin-top:16px}.primary:disabled{opacity:.45}.status{margin-top:14px;padding:14px;border-radius:14px;background:#f2f5f4;white-space:pre-wrap}.summary{background:#edf8f2;border-radius:16px;padding:14px;margin-top:12px}.small{font-size:12px;color:var(--muted)}.admin{display:block;text-align:center;margin-top:16px;color:var(--g);font-weight:800;text-decoration:none}@media(max-width:600px){.grid{grid-template-columns:1fr}.slots{grid-template-columns:repeat(2,1fr)}}
 </style>
 </head>
 <body><div class="wrap">
@@ -20,7 +20,7 @@
 <div class="card">
 <h2>1. เลือกวันที่</h2>
 <input id="date" type="date"/>
-<div class="small">จองล่วงหน้าได้ตามเวลาว่างของแต่ละเครื่อง</div>
+<div class="small">จองล่วงหน้าได้ 24 ชั่วโมง • เลือกเป็นช่วงละ 1 ชั่วโมง</div>
 </div>
 
 <div class="card">
@@ -33,7 +33,7 @@
 </div>
 
 <div class="card">
-<h2>3. เลือกเวลาเริ่ม</h2>
+<h2>3. เลือกช่วงเวลาจอง</h2>
 <div id="duration" class="summary">กรุณาเลือกเครื่องก่อน</div>
 <div id="slots" class="slots" style="margin-top:12px"></div>
 </div>
@@ -106,16 +106,23 @@ window.pickMachine=code=>{
 
 function renderSlots(){
  const m=selectedMachine;if(!m){$('slots').innerHTML='';return}
- const startMin=0,endMin=24*60-10;
- const step=10; let html='';
- const now=new Date();
- for(let min=startMin;min<=endMin;min+=step){
-   const h=String(Math.floor(min/60)).padStart(2,'0'),mm=String(min%60).padStart(2,'0'),t=h+':'+mm;
+ let html='';
+ for(let hour=0;hour<24;hour++){
+   const h=String(hour).padStart(2,'0');
+   const nextH=String((hour+1)%24).padStart(2,'0');
+   const t=h+':00';
+   const label=h+':00 - '+(hour===23?'24:00':nextH+':00');
    const slotStart=new Date($('date').value+'T'+t+':00+07:00');
-   const slotEnd=new Date(slotStart.getTime()+m.duration_minutes*60000);
-   const busy=(m.bookings||[]).some(b=>rangesOverlap(slotStart.getTime(),slotEnd.getTime(),new Date(b.start_at).getTime(),new Date(b.end_at).getTime()));
-   const past=slotStart.getTime()<Date.now();
-   html+=`<button class="slot ${busy||past?'busy':''} ${selectedTime===t?'sel':''}" ${busy||past?'disabled':''} onclick="pickTime('${t}')">${t}</button>`;
+   const bookingWindowEnd=new Date(slotStart.getTime()+60*60000);
+   const actualEnd=new Date(slotStart.getTime()+m.duration_minutes*60000);
+
+   const busy=(m.bookings||[]).some(b=>
+     rangesOverlap(slotStart.getTime(),bookingWindowEnd.getTime(),new Date(b.start_at).getTime(),new Date(b.end_at).getTime())
+   );
+   const past=bookingWindowEnd.getTime()<=Date.now();
+
+   html+=`<button class="slot ${busy||past?'busy':''} ${selectedTime===t?'sel':''}" ${busy||past?'disabled':''}
+     onclick="pickTime('${t}')">${label}</button>`;
  }
  $('slots').innerHTML=html;
 }
@@ -123,8 +130,14 @@ function renderSlots(){
 window.pickTime=t=>{
  selectedTime=t;renderSlots();
  const start=new Date($('date').value+'T'+t+':00+07:00');
- const end=new Date(start.getTime()+selectedMachine.duration_minutes*60000);
- $('status').textContent='เลือก '+selectedMachine.name+'\nเวลา '+t+' - '+fmtHHMM(end)+' น.\nใช้งานจริง '+(selectedMachine.service_minutes||(selectedMachine.machine_type==='WASHER'?40:50))+' นาที + เผื่อ '+(selectedMachine.buffer_minutes||10)+' นาที';
+ const windowEnd=new Date(start.getTime()+60*60000);
+ const actualEnd=new Date(start.getTime()+selectedMachine.duration_minutes*60000);
+ $('status').textContent=
+   'เลือก '+selectedMachine.name+
+   '\nช่วงจอง '+t+' - '+fmtHHMM(windowEnd)+' น.'+
+   '\nเครื่องจะว่างประมาณ '+fmtHHMM(actualEnd)+' น.'+
+   '\nใช้งานจริง '+(selectedMachine.service_minutes||(selectedMachine.machine_type==='WASHER'?40:50))+
+   ' นาที + เผื่อ '+(selectedMachine.buffer_minutes||10)+' นาที';
  updateBookButton()
 }
 
@@ -140,7 +153,9 @@ $('book').onclick=async()=>{
  const d=await r.json();
  if(!r.ok){$('status').textContent='❌ '+(d.error||'จองไม่สำเร็จ');await load();updateBookButton();return}
  const end=new Date(d.booking.end_at);
- $('status').textContent='✅ จองสำเร็จ\nเลขที่ '+d.booking.booking_ref+'\n'+d.machine.name+'\nจองช่วง '+selectedTime+' - '+fmtHHMM(end)+' น.\nใช้งานจริง '+d.reservation.service_minutes+' นาที + เผื่อ '+d.reservation.buffer_minutes+' นาที';
+ const bookedStart=new Date(d.booking.start_at);
+ const bookedWindowEnd=new Date(bookedStart.getTime()+60*60000);
+ $('status').textContent='✅ จองสำเร็จ\nเลขที่ '+d.booking.booking_ref+'\n'+d.machine.name+'\nช่วงจอง '+selectedTime+' - '+fmtHHMM(bookedWindowEnd)+' น.\nใช้งานจริง '+d.reservation.service_minutes+' นาที + เผื่อ '+d.reservation.buffer_minutes+' นาที';
  selectedTime=null;await load();updateBookButton();
 };
 load();
