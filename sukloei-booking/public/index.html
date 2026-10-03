@@ -8,7 +8,7 @@
 :root{--g:#08753f;--g2:#0a8d4d;--y:#ffd51f;--ink:#17392e;--muted:#6d7e77;--bg:#f5fbf8}
 *{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,"Noto Sans Thai",sans-serif;background:linear-gradient(180deg,#ffda22,#fff6c8 30%,#f4fbf8);color:var(--ink)}
 .wrap{max-width:760px;margin:auto;padding:18px}.hero{background:linear-gradient(135deg,var(--g2),#075b33);color:#fff;border-radius:28px;padding:24px;box-shadow:0 16px 40px rgba(0,0,0,.14)}h1{margin:0;font-size:38px}.tag{font-weight:700;margin-top:8px}.pill{display:inline-block;margin-top:12px;background:var(--y);color:#704600;padding:7px 12px;border-radius:999px;font-weight:900}
-.card{background:#fff;border-radius:24px;padding:20px;margin-top:16px;box-shadow:0 8px 28px rgba(0,0,0,.08)}label{display:block;font-weight:800;margin:12px 0 6px}input,select,textarea{width:100%;padding:13px 14px;border:1px solid #d9e4df;border-radius:14px;font-size:16px;background:#fff}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.machineGrid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}.m{border:2px solid #e2ebe7;background:#fff;border-radius:17px;padding:13px;text-align:left;color:var(--ink)}.m.sel{border-color:var(--g);background:#eaf9f1}.m b{display:block}.m small{color:var(--muted)}.slots{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.slot{padding:14px 8px;border:2px solid #dbe6e1;border-radius:14px;background:#fff;font-size:15px;font-weight:800;color:var(--ink)}.slot.busy{opacity:.35;text-decoration:line-through;background:#f3f3f3}.slot.sel{background:var(--g);color:white;border-color:var(--g)}.primary{width:100%;border:0;border-radius:16px;padding:16px;background:var(--g);color:white;font-size:18px;font-weight:900;margin-top:16px}.primary:disabled{opacity:.45}.status{margin-top:14px;padding:14px;border-radius:14px;background:#f2f5f4;white-space:pre-wrap}.summary{background:#edf8f2;border-radius:16px;padding:14px;margin-top:12px}.small{font-size:12px;color:var(--muted)}.admin{display:block;text-align:center;margin-top:16px;color:var(--g);font-weight:800;text-decoration:none}@media(max-width:600px){.grid{grid-template-columns:1fr}.slots{grid-template-columns:repeat(2,1fr)}}
+.card{background:#fff;border-radius:24px;padding:20px;margin-top:16px;box-shadow:0 8px 28px rgba(0,0,0,.08)}.modeGrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.modeBtn{border:2px solid #dbe6e1;background:#fff;border-radius:16px;padding:14px;font-size:16px;font-weight:900;color:var(--ink)}.modeBtn.sel{border-color:var(--g);background:#eaf9f1;color:var(--g)}label{display:block;font-weight:800;margin:12px 0 6px}input,select,textarea{width:100%;padding:13px 14px;border:1px solid #d9e4df;border-radius:14px;font-size:16px;background:#fff}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.machineGrid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}.m{border:2px solid #e2ebe7;background:#fff;border-radius:17px;padding:13px;text-align:left;color:var(--ink)}.m.sel{border-color:var(--g);background:#eaf9f1}.m b{display:block}.m small{color:var(--muted)}.slots{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.slot{padding:14px 8px;border:2px solid #dbe6e1;border-radius:14px;background:#fff;font-size:15px;font-weight:800;color:var(--ink)}.slot.busy{opacity:.35;text-decoration:line-through;background:#f3f3f3}.slot.sel{background:var(--g);color:white;border-color:var(--g)}.primary{width:100%;border:0;border-radius:16px;padding:16px;background:var(--g);color:white;font-size:18px;font-weight:900;margin-top:16px}.primary:disabled{opacity:.45}.status{margin-top:14px;padding:14px;border-radius:14px;background:#f2f5f4;white-space:pre-wrap}.summary{background:#edf8f2;border-radius:16px;padding:14px;margin-top:12px}.small{font-size:12px;color:var(--muted)}.admin{display:block;text-align:center;margin-top:16px;color:var(--g);font-weight:800;text-decoration:none}@media(max-width:600px){.grid{grid-template-columns:1fr}.slots{grid-template-columns:repeat(2,1fr)}}
 </style>
 </head>
 <body><div class="wrap">
@@ -24,22 +24,36 @@
 </div>
 
 <div class="card">
-<h2>2. เลือกเครื่อง <span style="font-size:14px;color:#6d7e77;font-weight:700">(ทั้งหมด 8 เครื่อง)</span></h2>
+<h2>2. เลือกรูปแบบการจอง</h2>
+<div class="modeGrid">
+  <button id="modeSingle" class="modeBtn sel" type="button">จองเครื่องเดียว</button>
+  <button id="modeCombo" class="modeBtn" type="button">🧺 + ♨️ จองซัก+อบพร้อมกัน</button>
+</div>
+<div id="modeHelp" class="small" style="margin-top:8px">เลือกซักหรืออบอย่างใดอย่างหนึ่ง</div>
+</div>
+
+<div class="card">
+<h2>3. เลือกเครื่อง <span style="font-size:14px;color:#6d7e77;font-weight:700">(ทั้งหมด 8 เครื่อง)</span></h2>
 <div class="summary" style="margin-bottom:12px">
   🧺 เครื่องซัก 4 เครื่อง — 13 kg ×2, 18 kg ×2 • ซัก 40 นาที + เผื่อ 10 นาที<br>
   ♨️ เครื่องอบ 4 เครื่อง — 13 kg ×2, 18 kg ×2 • อบ 50 นาที + เผื่อ 10 นาที
 </div>
 <div id="machines" class="machineGrid"></div>
+<div id="dryerPicker" style="display:none;margin-top:16px">
+  <h3 style="margin:0 0 8px">เลือกเครื่องอบต่อจากเครื่องซัก</h3>
+  <div class="small" style="margin-bottom:8px">ระบบจะจองเครื่องอบต่อในชั่วโมงถัดไปอัตโนมัติ</div>
+  <div id="dryers" class="machineGrid"></div>
+</div>
 </div>
 
 <div class="card">
-<h2>3. เลือกช่วงเวลาจอง</h2>
+<h2>4. เลือกช่วงเวลาจอง</h2>
 <div id="duration" class="summary">กรุณาเลือกเครื่องก่อน</div>
 <div id="slots" class="slots" style="margin-top:12px"></div>
 </div>
 
 <div class="card">
-<h2>4. ข้อมูลผู้จอง</h2>
+<h2>5. ข้อมูลผู้จอง</h2>
 <div class="grid">
 <div><label>ชื่อ</label><input id="name" placeholder="ชื่อผู้จอง"/></div>
 <div><label>เบอร์โทร</label><input id="phone" inputmode="tel" placeholder="08x-xxx-xxxx"/></div>
@@ -82,7 +96,7 @@ const FALLBACK_MACHINES=[
   {machine_code:'D18-01',name:'เครื่องอบ 18 kg #1',machine_type:'DRYER',capacity_kg:18,service_minutes:50,buffer_minutes:10,duration_minutes:60,bookings:[]},
   {machine_code:'D18-02',name:'เครื่องอบ 18 kg #2',machine_type:'DRYER',capacity_kg:18,service_minutes:50,buffer_minutes:10,duration_minutes:60,bookings:[]}
 ];
-let data={machines:FALLBACK_MACHINES},selectedMachine=null,selectedTime=null;
+let data={machines:FALLBACK_MACHINES},selectedMachine=null,selectedDryer=null,selectedTime=null,bookingMode='single';
 const today=new Date(); const local=new Date(today.getTime()-today.getTimezoneOffset()*60000).toISOString().slice(0,10);
 $('date').value=local;$('date').min=local;
 $('adminLink').href='/admin?date='+encodeURIComponent($('date').value);
@@ -109,22 +123,52 @@ async function load(){
 }
 
 function renderMachines(){
- $('machines').innerHTML=(data?.machines||[]).map(m=>`
+ const source=data?.machines||[];
+ const primary=bookingMode==='combo'?source.filter(m=>m.machine_type==='WASHER'):source;
+ $('machines').innerHTML=primary.map(m=>`
  <button class="m ${selectedMachine?.machine_code===m.machine_code?'sel':''}" onclick="pickMachine('${m.machine_code}')">
  <b>${m.machine_type==='WASHER'?'🧺':'♨️'} ${m.name}</b>
  <small>${m.machine_code} • ${m.capacity_kg} kg</small>
  <small>${m.machine_type==='WASHER'?'ซัก '+(m.service_minutes||40)+' นาที':'อบ '+(m.service_minutes||50)+' นาที'} + เผื่อ ${m.buffer_minutes||10} นาที</small>
  </button>`).join('');
+
+ $('dryerPicker').style.display=bookingMode==='combo'?'block':'none';
+ if(bookingMode==='combo'){
+   const dryers=source.filter(m=>m.machine_type==='DRYER');
+   $('dryers').innerHTML=dryers.map(m=>`
+    <button class="m ${selectedDryer?.machine_code===m.machine_code?'sel':''}" onclick="pickDryer('${m.machine_code}')">
+      <b>♨️ ${m.name}</b>
+      <small>${m.machine_code} • ${m.capacity_kg} kg</small>
+      <small>อบ ${m.service_minutes||50} นาที + เผื่อ ${m.buffer_minutes||10} นาที</small>
+    </button>`).join('');
+ }
 }
 
 window.pickMachine=code=>{
- selectedMachine=data.machines.find(x=>x.machine_code===code);selectedTime=null;renderMachines();renderSlots();
- $('duration').textContent=(selectedMachine.machine_type==='WASHER'?'ซัก':'อบ')+' ใช้งานจริง '+(selectedMachine.service_minutes||(selectedMachine.machine_type==='WASHER'?40:50))+' นาที + เผื่อ '+(selectedMachine.buffer_minutes||10)+' นาที • ล็อกช่วงรวม '+selectedMachine.duration_minutes+' นาที';
+ selectedMachine=data.machines.find(x=>x.machine_code===code);
+ selectedTime=null;
+ if(bookingMode==='combo' && selectedMachine?.machine_type!=='WASHER') selectedMachine=null;
+ renderMachines();renderSlots();
+ if(!selectedMachine){updateBookButton();return}
+ $('duration').textContent=bookingMode==='combo'
+   ? 'ซัก '+(selectedMachine.service_minutes||40)+' นาที + เผื่อ '+(selectedMachine.buffer_minutes||10)+' นาที แล้วอบต่อในชั่วโมงถัดไป'
+   : (selectedMachine.machine_type==='WASHER'?'ซัก':'อบ')+' ใช้งานจริง '+(selectedMachine.service_minutes||(selectedMachine.machine_type==='WASHER'?40:50))+' นาที + เผื่อ '+(selectedMachine.buffer_minutes||10)+' นาที • ล็อกช่วงรวม '+selectedMachine.duration_minutes+' นาที';
  updateBookButton();
 }
 
+window.pickDryer=code=>{
+ selectedDryer=data.machines.find(x=>x.machine_code===code&&x.machine_type==='DRYER')||null;
+ selectedTime=null;
+ renderMachines();renderSlots();updateBookButton();
+};
+
 function renderSlots(){
- const m=selectedMachine;if(!m){$('slots').innerHTML='';return}
+ const m=selectedMachine;
+ if(!m){$('slots').innerHTML='';return}
+ if(bookingMode==='combo'&&!selectedDryer){
+   $('slots').innerHTML='<div class="summary" style="grid-column:1/-1">เลือกเครื่องอบก่อน แล้วระบบจะแสดงช่วงเวลาที่จองซัก+อบต่อเนื่องได้</div>';
+   return;
+ }
  let html='';
  for(let hour=0;hour<24;hour++){
    const h=String(hour).padStart(2,'0');
@@ -133,44 +177,78 @@ function renderSlots(){
    const label=h+':00 - '+(hour===23?'24:00':nextH+':00');
    const slotStart=new Date($('date').value+'T'+t+':00+07:00');
    const bookingWindowEnd=new Date(slotStart.getTime()+60*60000);
-   const actualEnd=new Date(slotStart.getTime()+m.duration_minutes*60000);
 
-   const busy=(m.bookings||[]).some(b=>
+   let busy=(m.bookings||[]).some(b=>
      rangesOverlap(slotStart.getTime(),bookingWindowEnd.getTime(),new Date(b.start_at).getTime(),new Date(b.end_at).getTime())
    );
+
+   if(bookingMode==='combo'&&selectedDryer&&hour<23){
+     const dryStart=new Date(slotStart.getTime()+60*60000);
+     const dryEnd=new Date(dryStart.getTime()+60*60000);
+     busy=busy||(selectedDryer.bookings||[]).some(b=>
+       rangesOverlap(dryStart.getTime(),dryEnd.getTime(),new Date(b.start_at).getTime(),new Date(b.end_at).getTime())
+     );
+   }
+
    html+=`<button class="slot ${busy?'busy':''} ${selectedTime===t?'sel':''}" ${busy?'disabled':''}
      onclick="pickTime('${t}')">${label}</button>`;
  }
  $('slots').innerHTML=html;
 }
-
 window.pickTime=t=>{
  selectedTime=t;renderSlots();
  const start=new Date($('date').value+'T'+t+':00+07:00');
  const windowEnd=new Date(start.getTime()+60*60000);
- const actualEnd=new Date(start.getTime()+selectedMachine.duration_minutes*60000);
- $('status').textContent=
-   'เลือก '+selectedMachine.name+
-   '\nช่วงจอง '+t+' - '+fmtHHMM(windowEnd)+' น.'+
-   '\nเครื่องจะว่างประมาณ '+fmtHHMM(actualEnd)+' น.'+
-   '\nใช้งานจริง '+(selectedMachine.service_minutes||(selectedMachine.machine_type==='WASHER'?40:50))+
-   ' นาที + เผื่อ '+(selectedMachine.buffer_minutes||10)+' นาที';
+ if(bookingMode==='combo'){
+   const dryStart=new Date(start.getTime()+60*60000);
+   const dryEnd=new Date(dryStart.getTime()+60*60000);
+   $('status').textContent=
+     'จองซัก+อบพร้อมกัน'+
+     '\n🧺 '+selectedMachine.name+' '+t+' - '+fmtHHMM(windowEnd)+' น.'+
+     '\n♨️ '+selectedDryer.name+' '+fmtHHMM(dryStart)+' - '+fmtHHMM(dryEnd)+' น.'+
+     '\nยืนยันครั้งเดียว ได้ 2 คิวต่อเนื่อง';
+ }else{
+   const actualEnd=new Date(start.getTime()+selectedMachine.duration_minutes*60000);
+   $('status').textContent=
+     'เลือก '+selectedMachine.name+
+     '\nช่วงจอง '+t+' - '+fmtHHMM(windowEnd)+' น.'+
+     '\nเครื่องจะว่างประมาณ '+fmtHHMM(actualEnd)+' น.'+
+     '\nใช้งานจริง '+(selectedMachine.service_minutes||(selectedMachine.machine_type==='WASHER'?40:50))+
+     ' นาที + เผื่อ '+(selectedMachine.buffer_minutes||10)+' นาที';
+ }
  updateBookButton()
 }
-
 function updateBookButton(){
  const home=$('homeService').checked;
  const homeReady=!home || ($('homeAddress').value.trim() && $('within5km').checked);
- $('book').disabled=!(selectedMachine&&selectedTime&&$('name').value.trim()&&$('phone').value.trim()&&homeReady);
- $('book').textContent=home?'ยืนยันการจอง + บริการรับ–ส่ง 40 บาท':'ยืนยันการจอง';
+ const machineReady=bookingMode==='combo'?(selectedMachine&&selectedDryer):(selectedMachine);
+ $('book').disabled=!(machineReady&&selectedTime&&$('name').value.trim()&&$('phone').value.trim()&&homeReady);
+ const base=bookingMode==='combo'?'ยืนยันจองซัก+อบพร้อมกัน':'ยืนยันการจอง';
+ $('book').textContent=home?base+' + บริการรับ–ส่ง 40 บาท':base;
 }
 $('name').oninput=updateBookButton;
 $('phone').oninput=updateBookButton;
 $('date').onchange=()=>{
- selectedTime=null;
+ selectedTime=null;selectedDryer=null;
  $('adminLink').href='/admin?date='+encodeURIComponent($('date').value);
  load();
 };
+
+function setMode(mode){
+ bookingMode=mode;
+ selectedMachine=null;selectedDryer=null;selectedTime=null;
+ $('modeSingle').classList.toggle('sel',mode==='single');
+ $('modeCombo').classList.toggle('sel',mode==='combo');
+ $('modeHelp').textContent=mode==='combo'
+   ? 'เลือกเครื่องซัก 1 เครื่อง + เครื่องอบ 1 เครื่อง แล้วกดจองครั้งเดียว'
+   : 'เลือกซักหรืออบอย่างใดอย่างหนึ่ง';
+ $('duration').textContent=mode==='combo'?'เลือกเครื่องซักและเครื่องอบก่อน':'กรุณาเลือกเครื่องก่อน';
+ $('status').textContent='ยังไม่ได้เลือกเวลา';
+ renderMachines();renderSlots();updateBookButton();
+}
+$('modeSingle').onclick=()=>setMode('single');
+$('modeCombo').onclick=()=>setMode('combo');
+
 $('homeService').onchange=()=>{
  $('homeFields').style.display=$('homeService').checked?'block':'none';
  updateBookButton();
@@ -180,21 +258,45 @@ $('within5km').onchange=updateBookButton;
 
 $('book').onclick=async()=>{
  $('book').disabled=true;$('status').textContent='กำลังบันทึกการจอง...';
- const r=await fetch('/api/bookings',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({
-   machine_code:selectedMachine.machine_code,customer_name:$('name').value,customer_phone:$('phone').value,
+
+ const common={
+   customer_name:$('name').value,customer_phone:$('phone').value,
    date:$('date').value,time:selectedTime,note:$('note').value,
    home_service:$('homeService').checked,
    home_address:$('homeAddress').value,
    within_5km_confirmed:$('within5km').checked
- })});
+ };
+
+ const endpoint=bookingMode==='combo'?'/api/bookings/combo':'/api/bookings';
+ const payload=bookingMode==='combo'
+   ? {...common,washer_code:selectedMachine.machine_code,dryer_code:selectedDryer.machine_code}
+   : {...common,machine_code:selectedMachine.machine_code};
+
+ const r=await fetch(endpoint,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)});
  const d=await r.json();
  if(!r.ok){$('status').textContent='❌ '+(d.error||'จองไม่สำเร็จ');await load();updateBookButton();return}
- const end=new Date(d.booking.end_at);
- const bookedStart=new Date(d.booking.start_at);
- const bookedWindowEnd=new Date(bookedStart.getTime()+60*60000);
+
  $('adminLink').href='/admin?date='+encodeURIComponent($('date').value);
- $('status').textContent='✅ จองสำเร็จ\nเลขที่ '+d.booking.booking_ref+'\n'+d.machine.name+'\nช่วงจอง '+selectedTime+' - '+fmtHHMM(bookedWindowEnd)+' น.\nใช้งานจริง '+d.reservation.service_minutes+' นาที + เผื่อ '+d.reservation.buffer_minutes+' นาที'+(d.home_service.enabled?'\n🚚 รับ–ส่งถึงบ้าน +40 บาท (ภายใน 5 กม.)':'');
- selectedTime=null;await load();updateBookButton();
+
+ if(bookingMode==='combo'){
+   const ws=new Date(d.washer_booking.start_at);
+   const we=new Date(d.washer_booking.end_at);
+   const ds=new Date(d.dryer_booking.start_at);
+   const de=new Date(d.dryer_booking.end_at);
+   $('status').textContent=
+     '✅ จองซัก+อบพร้อมกันสำเร็จ'+
+     '\nเลขชุด '+d.combo_group_ref+
+     '\n🧺 '+d.washer.name+' '+fmtHHMM(ws)+' - '+fmtHHMM(we)+' น.'+
+     '\n♨️ '+d.dryer.name+' '+fmtHHMM(ds)+' - '+fmtHHMM(de)+' น.'+
+     (d.home_service.enabled?'\n🚚 รับ–ส่งถึงบ้าน +40 บาท (ภายใน 5 กม.)':'');
+   selectedTime=null;
+ }else{
+   const bookedStart=new Date(d.booking.start_at);
+   const bookedWindowEnd=new Date(bookedStart.getTime()+60*60000);
+   $('status').textContent='✅ จองสำเร็จ\nเลขที่ '+d.booking.booking_ref+'\n'+d.machine.name+'\nช่วงจอง '+selectedTime+' - '+fmtHHMM(bookedWindowEnd)+' น.\nใช้งานจริง '+d.reservation.service_minutes+' นาที + เผื่อ '+d.reservation.buffer_minutes+' นาที'+(d.home_service.enabled?'\n🚚 รับ–ส่งถึงบ้าน +40 บาท (ภายใน 5 กม.)':'');
+   selectedTime=null;
+ }
+ await load();updateBookButton();
 };
 load();
 </script>

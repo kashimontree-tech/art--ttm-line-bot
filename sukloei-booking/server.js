@@ -92,6 +92,42 @@ app.post('/api/bookings',async(req,res)=>{
   }
 });
 
+app.post('/api/bookings/combo',async(req,res)=>{
+  try{
+    const {
+      washer_code,dryer_code,customer_name,customer_phone,date,time,note,
+      home_service=false,home_address='',within_5km_confirmed=false
+    }=req.body||{};
+
+    if(!washer_code||!dryer_code||!customer_name||!customer_phone||!date||!time)
+      return res.status(400).json({error:'กรอกข้อมูลจองซัก+อบไม่ครบ'});
+
+    const {data,error}=await supabase.rpc('booking_create_combo',{
+      p_washer_code:String(washer_code),
+      p_dryer_code:String(dryer_code),
+      p_customer_name:String(customer_name),
+      p_customer_phone:String(customer_phone),
+      p_date:String(date),
+      p_time:String(time),
+      p_note:String(note||''),
+      p_home_service:Boolean(home_service),
+      p_home_address:String(home_address||''),
+      p_within_5km:Boolean(within_5km_confirmed)
+    });
+
+    if(error){
+      const msg=String(error.message||'จองซัก+อบไม่สำเร็จ');
+      const status=msg.includes('มีคนจองแล้ว')?409:400;
+      return res.status(status).json({error:msg});
+    }
+
+    res.json({ok:true,...data});
+  }catch(e){
+    console.error(e);
+    res.status(500).json({error:e.message});
+  }
+});
+
 app.get('/api/bookings/:ref',async(req,res)=>{
   const {data,error}=await supabase.from('machine_bookings')
     .select('*,booking_machines(*)').eq('booking_ref',req.params.ref).single();
