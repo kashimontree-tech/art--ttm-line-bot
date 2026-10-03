@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>ซักเลย • W13-01</title>
+<style>
+body{font-family:system-ui,-apple-system,sans-serif;background:#f4faf8;margin:0;color:#173b36}
+.wrap{max-width:460px;margin:0 auto;padding:24px}
+.card{background:#fff;border-radius:24px;padding:24px;box-shadow:0 12px 40px rgba(0,0,0,.08)}
+h1{margin:0 0 6px;font-size:28px}.sub{color:#6b7d79;margin-bottom:24px}
+.machine{background:#eaf8f3;border-radius:18px;padding:18px;margin-bottom:18px}
+.price{font-size:42px;font-weight:800;margin:6px 0}
+button{width:100%;border:0;border-radius:16px;padding:16px;font-size:18px;font-weight:700;background:#0f766e;color:white}
+button:disabled{opacity:.45}.status{margin-top:18px;padding:14px;border-radius:14px;background:#f3f4f6;white-space:pre-wrap}
+.small{font-size:12px;color:#7b8a87;margin-top:16px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <h1>ซักเลย</h1>
+    <div class="sub">ทดลองระบบชำระเงินหน้าเครื่อง</div>
+    <div class="machine">
+      <div>เครื่องซัก 13 kg #1</div>
+      <div><b>W13-01</b></div>
+      <div class="price">40 บาท</div>
+    </div>
+    <button id="pay">จำลองชำระ 40 บาท</button>
+    <div id="status" class="status">พร้อมทดสอบ</div>
+    <div class="small">โหมดทดสอบ: ยังไม่หักเงินจริงและยังไม่ต่อเครื่องซักจริง</div>
+  </div>
+</div>
+<script>
+const btn=document.getElementById('pay');
+const out=document.getElementById('status');
+btn.onclick=async()=>{
+  btn.disabled=true; out.textContent='กำลังสร้างรายการ...';
+  try{
+    const c=await fetch('/api/payment/create',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({machine_code:'W13-01'})});
+    const p=await c.json(); if(!c.ok) throw new Error(p.error||'create failed');
+    out.textContent='สร้างรายการแล้ว\n'+p.payment_ref+'\nกำลังจำลองการชำระ...';
+    const m=await fetch('/api/payment/mock-paid',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({payment_ref:p.payment_ref})});
+    const r=await m.json(); if(!m.ok) throw new Error(r.error||'payment failed');
+    out.textContent='✅ ชำระสำเร็จ\n'+p.payment_ref+'\nระบบส่งคำสั่งเริ่มเครื่องและแจ้ง LINE แล้ว';
+  }catch(e){out.textContent='❌ '+e.message}
+  btn.disabled=false;
+};
+</script>
+</body>
+</html>
