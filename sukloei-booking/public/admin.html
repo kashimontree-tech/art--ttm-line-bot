@@ -6,7 +6,12 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#f4f7f6;margin:0;
 <div class="top"><a class="back" href="/">← หน้าจอง</a><input id="date" type="date"/></div>
 <h1>ตารางคิวจองเครื่อง</h1><div style="color:#6d7e77;margin-bottom:8px">แสดงเฉพาะข้อมูลคิว ไม่แสดงเบอร์โทรหรือที่อยู่ลูกค้า</div><div id="list" class="card">กำลังโหลด...</div>
 </div><script>
-const $=id=>document.getElementById(id);const now=new Date();$('date').value=new Date(now.getTime()-now.getTimezoneOffset()*60000).toISOString().slice(0,10);
+const $=id=>document.getElementById(id);
+const params=new URLSearchParams(location.search);
+const qsDate=params.get('date');
+const now=new Date();
+const defaultDate=new Date(now.getTime()-now.getTimezoneOffset()*60000).toISOString().slice(0,10);
+$('date').value=/^\d{4}-\d{2}-\d{2}$/.test(qsDate||'')?qsDate:defaultDate;
 function t(x){return new Date(x).toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit',hour12:false,timeZone:'Asia/Bangkok'})}
 async function load(){const r=await fetch('/api/admin/bookings?date='+$('date').value);const d=await r.json();$('list').innerHTML=d.length?d.map(x=>`<div class="row">
 <div><b>${t(x.start_at)}-${t(x.end_at)}</b></div>
@@ -15,5 +20,10 @@ async function load(){const r=await fetch('/api/admin/bookings?date='+$('date').
 <div>${x.booking_ref}</div>
 <div class="${x.status==='BOOKED'?'booked':'cancel'}">${x.status}</div>
 </div>`).join(''):'ยังไม่มีรายการจองวันนี้'}
-$('date').onchange=load;load();setInterval(load,15000);
+$('date').onchange=()=>{
+ const d=$('date').value;
+ history.replaceState(null,'','/admin?date='+encodeURIComponent(d));
+ load();
+};
+load();setInterval(load,15000);
 </script></body></html>
