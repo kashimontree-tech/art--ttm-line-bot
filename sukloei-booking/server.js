@@ -11,11 +11,9 @@ const __filename=fileURLToPath(import.meta.url);
 const __dirname=path.dirname(__filename);
 const PORT=Number(process.env.PORT||3000);
 
-const supabase=createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY,
-  {auth:{persistSession:false}}
-);
+const SUPABASE_URL=process.env.SUPABASE_URL||'https://mmsspzwobyrojzqdiynh.supabase.co';
+const SUPABASE_KEY=process.env.SUPABASE_SERVICE_ROLE_KEY||process.env.SUPABASE_PUBLISHABLE_KEY||'sb_publishable_eZ4L-l-oYOjh4hx_MgkSmA_jHBKlOGg';
+const supabase=createClient(SUPABASE_URL,SUPABASE_KEY,{auth:{persistSession:false}});
 
 app.use(express.static(path.join(__dirname,'public')));
 
