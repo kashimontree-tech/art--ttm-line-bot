@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>ซักเลย • บริการรีด</title>
+<style>
+body{font-family:system-ui,-apple-system,sans-serif;margin:0;background:linear-gradient(180deg,#ffd11a,#fff7d2);color:#18352d}.wrap{max-width:520px;margin:auto;padding:20px}.card{background:#fff;border-radius:24px;padding:20px;box-shadow:0 10px 32px rgba(0,0,0,.09)}h1{margin:0;color:#0a743f}.item{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;padding:14px 0;border-bottom:1px dashed #d7d7d7}.price{font-weight:900;font-size:19px}.qty{display:flex;align-items:center;gap:8px}.qty button{width:36px;height:36px;border:0;border-radius:10px;background:#edf6f1;font-size:20px}.qty span{min-width:22px;text-align:center;font-weight:800}.total{font-size:28px;font-weight:900;margin:20px 0;color:#08753f}.submit{width:100%;padding:16px;border:0;border-radius:16px;background:#08753f;color:#fff;font-size:18px;font-weight:900}.status{margin-top:14px;background:#f3f5f4;padding:14px;border-radius:14px;white-space:pre-wrap}.back{display:block;margin:14px 0;color:#08753f;text-decoration:none;font-weight:800}
+</style></head>
+<body><div class="wrap">
+<a class="back" href="/">← กลับหน้าเครื่อง</a>
+<div class="card">
+<h1>👔 บริการรีด</h1>
+<p>เลือกรายการและจำนวนชิ้น</p>
+<div id="items"></div>
+<div class="total">รวม <span id="total">0</span> บาท</div>
+<button id="submit" class="submit">ส่งรายการงานรีด</button>
+<div id="status" class="status">ยังไม่มีรายการ</div>
+</div></div>
+<script>
+let options=[],qty={}; const $=id=>document.getElementById(id);
+function render(){
+  $('items').innerHTML=options.map(o=>`<div class="item">
+    <div><b>${o.name}</b><div style="font-size:12px;color:#70827a">${o.label}</div></div>
+    <div class="price">${o.price}.-</div>
+    <div class="qty"><button data-c="${o.code}" data-d="-1">−</button><span>${qty[o.code]||0}</span><button data-c="${o.code}" data-d="1">+</button></div>
+  </div>`).join('');
+  document.querySelectorAll('.qty button').forEach(b=>b.onclick=()=>{const c=b.dataset.c;qty[c]=Math.max(0,(qty[c]||0)+Number(b.dataset.d));render()});
+  const sum=options.reduce((s,o)=>s+(qty[o.code]||0)*o.price,0);$('total').textContent=sum;
+}
+async function load(){const r=await fetch('/api/catalog');const d=await r.json();options=d.ironing;render()}
+$('submit').onclick=async()=>{
+  const items=options.filter(o=>(qty[o.code]||0)>0).map(o=>({option_code:o.code,qty:qty[o.code]}));
+  if(!items.length){$('status').textContent='กรุณาเลือกรายการอย่างน้อย 1 ชิ้น';return}
+  const r=await fetch('/api/iron/order',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({items})});
+  const d=await r.json();if(!r.ok){$('status').textContent='❌ '+(d.error||'เกิดข้อผิดพลาด');return}
+  $('status').textContent='✅ รับรายการแล้ว\nเลขที่ '+d.order_ref+'\nรวม '+d.total+' บาท\nแจ้ง LINE ร้านเรียบร้อย';
+  qty={};render();
+};
+load();
+</script></body></html>
