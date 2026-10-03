@@ -110,13 +110,21 @@ app.post('/api/bookings/:ref/cancel',async(req,res)=>{
 });
 
 app.get('/api/admin/bookings',async(req,res)=>{
+  const pin=String(req.headers['x-admin-pin']||'');
   const date=String(req.query.date||'');
   const useDate=/^\d{4}-\d{2}-\d{2}$/.test(date)
     ? date
     : new Date(Date.now()+7*3600*1000).toISOString().slice(0,10);
 
-  const {data,error}=await supabase.rpc('booking_list_queue',{p_date:useDate});
-  if(error)return res.status(500).json({error:error.message});
+  const {data,error}=await supabase.rpc('booking_list_queue_private',{
+    p_date:useDate,
+    p_pin:pin
+  });
+  if(error){
+    const msg=String(error.message||'');
+    if(msg.toLowerCase().includes('unauthorized')) return res.status(401).json({error:'PIN ไม่ถูกต้อง'});
+    return res.status(500).json({error:msg});
+  }
   res.json(data||[]);
 });
 
