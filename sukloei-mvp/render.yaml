@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: sukloei-machine-mvp
+    runtime: node
+    rootDir: sukloei-mvp
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      - key: MACHINE_CODE
+        value: W13-01
+      - key: MACHINE_PRICE
+        value: 40
+      - key: ENABLE_MOCK_PAYMENT
+        value: "true"
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: LINE_CHANNEL_ACCESS_TOKEN
+        sync: false
+      - key: LINE_TARGET_ID
+        sync: false
+      - key: MQTT_URL
+        sync: false
