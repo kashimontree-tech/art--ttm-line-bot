@@ -21,6 +21,8 @@ const dbEnabled=!!(process.env.SUPABASE_URL&&process.env.SUPABASE_SERVICE_ROLE_K
 const supabase=dbEnabled?createClient(process.env.SUPABASE_URL,process.env.SUPABASE_SERVICE_ROLE_KEY,{auth:{persistSession:false}}):null;
 
 const memPayments=new Map();
+const memCommands=new Map();
+const DEVICE_API_KEY=process.env.DEVICE_API_KEY||'';
 
 let mqttClient=null;
 if(process.env.MQTT_URL){
@@ -98,7 +100,7 @@ async function markPaid(ref){
 
 async function sendStart(payment){
   const commandId=uuidv4();
-  const payload={command_id:commandId,action:'START',pulse_ms:400,payment_ref:payment.payment_ref};
+  const payload={command_id:commandId,action:'START',pulse_ms:50,payment_ref:payment.payment_ref};
   if(mqttClient?.connected){
     mqttClient.publish('laundry/'+payment.machine_code+'/command',JSON.stringify(payload),{qos:1});
   }
@@ -108,13 +110,75 @@ async function sendStart(payment){
       machine_code:payment.machine_code,
       payment_ref:payment.payment_ref,
       action:'START',
-      pulse_ms:400,
+      pulse_ms:50,
       status:mqttClient?.connected?'SENT':'QUEUED',
       sent_at:new Date().toISOString()
     });
   }
+  memCommands.set(payment.machine_code,{...payload,status:'QUEUED',created_at:new Date().toISOString()});
   return {commandId,mqttSent:!!mqttClient?.connected};
 }
+
+function requireDeviceKey(req,res,next){
+  const key=String(req.headers['x-device-key']||'');
+  if(!DEVICE_API_KEY || key!==DEVICE_API_KEY) return res.status(401).json({error:'unauthorized'});
+  next();
+}
+
+app.get('/api/device/:machineCode/next-command',requireDeviceKey,async(req,res)=>{
+  try{
+    if(req.params.machineCode!==MACHINE_CODE) return res.status(404).json({error:'unknown machine'});
+    let command=memCommands.get(req.params.machineCode)||null;
+
+    if(dbEnabled){
+      const {data,error}=await supabase.from('machine_commands')
+        .select('*')
+        .eq('machine_code',req.params.machineCode)
+        .in('status',['QUEUED','SENT'])
+        .order('created_at',{ascending:true})
+        .limit(1)
+        .maybeSingle();
+      if(error) throw error;
+      if(data){
+        command={
+          command_id:data.command_id,
+          action:data.action,
+          pulse_ms:data.pulse_ms||50,
+          payment_ref:data.payment_ref||null,
+          status:data.status
+        };
+      }
+    }
+
+    if(!command) return res.json({ok:true,command:null});
+    res.json({ok:true,command});
+  }catch(e){console.error(e);res.status(500).json({error:e.message})}
+});
+
+app.post('/api/device/:machineCode/ack',requireDeviceKey,async(req,res)=>{
+  try{
+    if(req.params.machineCode!==MACHINE_CODE) return res.status(404).json({error:'unknown machine'});
+    const {command_id,status}=req.body||{};
+    if(!command_id) return res.status(400).json({error:'command_id required'});
+    const current=memCommands.get(req.params.machineCode);
+    if(current?.command_id===command_id) memCommands.delete(req.params.machineCode);
+
+    if(dbEnabled){
+      const {error}=await supabase.from('machine_commands')
+        .update({status:status==='STARTED'?'ACK':'FAILED',ack_at:new Date().toISOString()})
+        .eq('command_id',command_id);
+      if(error) throw error;
+    }
+
+    await linePush(
+      status==='STARTED'
+        ? '🟢 ซักเลย — เครื่องเริ่มทำงานแล้ว\nเครื่อง: '+req.params.machineCode+'\nCommand: '+command_id
+        : '🔴 ซักเลย — เครื่องตอบกลับผิดปกติ\nเครื่อง: '+req.params.machineCode+'\nสถานะ: '+String(status||'UNKNOWN')
+    );
+
+    res.json({ok:true});
+  }catch(e){console.error(e);res.status(500).json({error:e.message})}
+});
 
 app.use(express.static(path.join(__dirname,'public')));
 
@@ -167,8 +231,7 @@ app.post('/api/payment/mock-paid',async(req,res)=>{
       'เครื่อง: เครื่องซัก 13 kg #1 ('+paid.machine_code+')\n'+
       'ยอด: '+Number(paid.amount).toFixed(0)+' บาท\n'+
       'Payment: '+paid.payment_ref+'\n'+
-      'สถานะ: ส่งคำสั่งเริ่มเครื่องแล้ว'+(command.mqttSent?'':' (MQTT ยังไม่เชื่อม)'
-      )
+      'สถานะ: รอ ESP32 รับคำสั่ง'+(command.mqttSent?' + MQTT':'')
     );
     res.json({ok:true,payment_ref:ref,command_id:command.commandId,mqtt_sent:command.mqttSent,line});
   }catch(e){console.error(e);res.status(500).json({error:e.message})}
