@@ -15,6 +15,31 @@ const SUPABASE_URL=process.env.SUPABASE_URL||'https://mmsspzwobyrojzqdiynh.supab
 const SUPABASE_KEY=process.env.SUPABASE_SERVICE_ROLE_KEY||process.env.SUPABASE_PUBLISHABLE_KEY||'sb_publishable_eZ4L-l-oYOjh4hx_MgkSmA_jHBKlOGg';
 const supabase=createClient(SUPABASE_URL,SUPABASE_KEY,{auth:{persistSession:false}});
 
+const LINE_RELAY_URL=String(process.env.LINE_RELAY_URL||'');
+const LINE_RELAY_SECRET=String(process.env.SUKLOEI_RELAY_SECRET||'');
+
+async function linePush(text){
+  if(!LINE_RELAY_URL||!LINE_RELAY_SECRET){
+    console.log('[LINE relay disabled]',text);
+    return {sent:false};
+  }
+  const r=await fetch(LINE_RELAY_URL,{
+    method:'POST',
+    headers:{'Content-Type':'application/json','x-sukloei-secret':LINE_RELAY_SECRET},
+    body:JSON.stringify({text})
+  });
+  if(!r.ok) throw new Error('LINE relay '+r.status+' '+await r.text());
+  return {sent:true};
+}
+
+function thTime(iso){
+  return new Date(iso).toLocaleString('th-TH',{
+    timeZone:'Asia/Bangkok',
+    day:'2-digit',month:'2-digit',year:'numeric',
+    hour:'2-digit',minute:'2-digit',hour12:false
+  });
+}
+
 app.use((req,res,next)=>{
   res.set('Cache-Control','no-store');
   next();
@@ -85,6 +110,17 @@ app.post('/api/bookings',async(req,res)=>{
       return res.status(status).json({error:msg});
     }
 
+    try{
+      await linePush(
+        '📅 ร้านซักเลย — มีรายการจองใหม่\n'+
+        'ชื่อ: '+String(customer_name)+'\n'+
+        'โทร: '+String(customer_phone)+'\n'+
+        'เครื่อง: '+String(data.machine?.name||machine_code)+' ('+String(machine_code)+')\n'+
+        'เวลา: '+thTime(data.booking.start_at)+' - '+new Date(data.booking.end_at).toLocaleTimeString('th-TH',{timeZone:'Asia/Bangkok',hour:'2-digit',minute:'2-digit',hour12:false})+' น.\n'+
+        'Booking: '+String(data.booking.booking_ref)+
+        (data.home_service?.enabled?'\n🚚 รับ–ส่งถึงบ้าน +40 บาท':'')
+      );
+    }catch(e){console.error('Booking LINE alert failed:',e.message)}
     res.json({ok:true,...data});
   }catch(e){
     console.error(e);
@@ -121,6 +157,17 @@ app.post('/api/bookings/combo',async(req,res)=>{
       return res.status(status).json({error:msg});
     }
 
+    try{
+      await linePush(
+        '📅 ร้านซักเลย — จองซัก+อบพร้อมกัน\n'+
+        'ชื่อ: '+String(customer_name)+'\n'+
+        'โทร: '+String(customer_phone)+'\n'+
+        '🧺 '+String(data.washer?.name||washer_code)+' '+new Date(data.washer_booking.start_at).toLocaleTimeString('th-TH',{timeZone:'Asia/Bangkok',hour:'2-digit',minute:'2-digit',hour12:false})+'-'+new Date(data.washer_booking.end_at).toLocaleTimeString('th-TH',{timeZone:'Asia/Bangkok',hour:'2-digit',minute:'2-digit',hour12:false})+' น.\n'+
+        '♨️ '+String(data.dryer?.name||dryer_code)+' '+new Date(data.dryer_booking.start_at).toLocaleTimeString('th-TH',{timeZone:'Asia/Bangkok',hour:'2-digit',minute:'2-digit',hour12:false})+'-'+new Date(data.dryer_booking.end_at).toLocaleTimeString('th-TH',{timeZone:'Asia/Bangkok',hour:'2-digit',minute:'2-digit',hour12:false})+' น.\n'+
+        'ชุดจอง: '+String(data.combo_group_ref)+
+        (data.home_service?.enabled?'\n🚚 รับ–ส่งถึงบ้าน +40 บาท':'')
+      );
+    }catch(e){console.error('Combo booking LINE alert failed:',e.message)}
     res.json({ok:true,...data});
   }catch(e){
     console.error(e);
