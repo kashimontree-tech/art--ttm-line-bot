@@ -24,7 +24,11 @@
 </div>
 
 <div class="card">
-<h2>2. เลือกเครื่อง</h2>
+<h2>2. เลือกเครื่อง <span style="font-size:14px;color:#6d7e77;font-weight:700">(ทั้งหมด 8 เครื่อง)</span></h2>
+<div class="summary" style="margin-bottom:12px">
+  🧺 เครื่องซัก 4 เครื่อง — 13 kg ×2, 18 kg ×2 • รอบละ 36 นาที<br>
+  ♨️ เครื่องอบ 4 เครื่อง — 13 kg ×2, 18 kg ×2 • รอบละ 40 นาที
+</div>
 <div id="machines" class="machineGrid"></div>
 </div>
 
@@ -50,7 +54,17 @@
 
 <script>
 const $=id=>document.getElementById(id);
-let data=null,selectedMachine=null,selectedTime=null;
+const FALLBACK_MACHINES=[
+  {machine_code:'W13-01',name:'เครื่องซัก 13 kg #1',machine_type:'WASHER',capacity_kg:13,duration_minutes:36,bookings:[]},
+  {machine_code:'W13-02',name:'เครื่องซัก 13 kg #2',machine_type:'WASHER',capacity_kg:13,duration_minutes:36,bookings:[]},
+  {machine_code:'W18-01',name:'เครื่องซัก 18 kg #1',machine_type:'WASHER',capacity_kg:18,duration_minutes:36,bookings:[]},
+  {machine_code:'W18-02',name:'เครื่องซัก 18 kg #2',machine_type:'WASHER',capacity_kg:18,duration_minutes:36,bookings:[]},
+  {machine_code:'D13-01',name:'เครื่องอบ 13 kg #1',machine_type:'DRYER',capacity_kg:13,duration_minutes:40,bookings:[]},
+  {machine_code:'D13-02',name:'เครื่องอบ 13 kg #2',machine_type:'DRYER',capacity_kg:13,duration_minutes:40,bookings:[]},
+  {machine_code:'D18-01',name:'เครื่องอบ 18 kg #1',machine_type:'DRYER',capacity_kg:18,duration_minutes:40,bookings:[]},
+  {machine_code:'D18-02',name:'เครื่องอบ 18 kg #2',machine_type:'DRYER',capacity_kg:18,duration_minutes:40,bookings:[]}
+];
+let data={machines:FALLBACK_MACHINES},selectedMachine=null,selectedTime=null;
 const today=new Date(); const local=new Date(today.getTime()-today.getTimezoneOffset()*60000).toISOString().slice(0,10);
 $('date').value=local;$('date').min=local;
 
@@ -60,15 +74,27 @@ function rangesOverlap(s,e,bs,be){return s<be&&e>bs}
 
 async function load(){
  const date=$('date').value;
- const r=await fetch('/api/availability?date='+date); data=await r.json();
- renderMachines(); if(selectedMachine){selectedMachine=data.machines.find(x=>x.machine_code===selectedMachine.machine_code)||null;renderSlots()}
+ try{
+   const r=await fetch('/api/availability?date='+date);
+   const live=await r.json();
+   if(r.ok && Array.isArray(live.machines) && live.machines.length) data=live;
+   else data={date,machines:FALLBACK_MACHINES};
+ }catch(e){
+   data={date,machines:FALLBACK_MACHINES};
+ }
+ renderMachines();
+ if(selectedMachine){
+   selectedMachine=data.machines.find(x=>x.machine_code===selectedMachine.machine_code)||null;
+   renderSlots();
+ }
 }
 
 function renderMachines(){
  $('machines').innerHTML=(data?.machines||[]).map(m=>`
  <button class="m ${selectedMachine?.machine_code===m.machine_code?'sel':''}" onclick="pickMachine('${m.machine_code}')">
  <b>${m.machine_type==='WASHER'?'🧺':'♨️'} ${m.name}</b>
- <small>${m.machine_code} • ${m.duration_minutes} นาที</small>
+ <small>${m.machine_code} • ${m.capacity_kg} kg • ${m.duration_minutes} นาที</small>
+ <small>${m.machine_type==='WASHER'?'ซัก 1 รอบ':'อบ 1 รอบ'}</small>
  </button>`).join('');
 }
 
