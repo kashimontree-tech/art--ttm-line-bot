@@ -98,8 +98,13 @@ const FALLBACK_MACHINES=[
   {machine_code:'D18-02',name:'เครื่องอบ 18 kg #2',machine_type:'DRYER',capacity_kg:18,service_minutes:50,buffer_minutes:10,duration_minutes:60,bookings:[]}
 ];
 let data={machines:FALLBACK_MACHINES},selectedMachine=null,selectedDryer=null,selectedTime=null,bookingMode='single';
+const presetParams=new URLSearchParams(location.search);
+const presetDate=presetParams.get('date')||'';
+const presetMachine=presetParams.get('machine')||'';
+const presetTime=presetParams.get('time')||'';
+let presetApplied=false;
 const today=new Date(); const local=new Date(today.getTime()-today.getTimezoneOffset()*60000).toISOString().slice(0,10);
-$('date').value=local;$('date').min=local;
+$('date').value=/^\d{4}-\d{2}-\d{2}$/.test(presetDate)?presetDate:local;$('date').min=local;
 $('queueLink').href='/queue?date='+encodeURIComponent($('date').value);
 $('adminLink').href='/admin?date='+encodeURIComponent($('date').value);
 
@@ -118,7 +123,31 @@ async function load(){
    data={date,machines:FALLBACK_MACHINES};
  }
  renderMachines();
- if(selectedMachine){
+
+ if(!presetApplied && presetMachine){
+   const wanted=data.machines.find(x=>x.machine_code===presetMachine);
+   if(wanted){
+     selectedMachine=wanted;
+     bookingMode='single';
+     $('modeSingle').classList.add('sel');
+     $('modeCombo').classList.remove('sel');
+     renderMachines();
+     renderSlots();
+     if(/^\d{2}:\d{2}$/.test(presetTime)){
+       const hh=Number(presetTime.slice(0,2));
+       if(Number.isInteger(hh)&&hh>=0&&hh<24){
+         const slotStart=new Date($('date').value+'T'+presetTime+':00+07:00');
+         const slotEnd=new Date(slotStart.getTime()+60*60000);
+         const busy=(wanted.bookings||[]).some(b=>
+           rangesOverlap(slotStart.getTime(),slotEnd.getTime(),new Date(b.start_at).getTime(),new Date(b.end_at).getTime())
+         );
+         if(!busy) pickTime(presetTime);
+       }
+     }
+     document.getElementById('machines')?.scrollIntoView({behavior:'smooth',block:'start'});
+   }
+   presetApplied=true;
+ }else if(selectedMachine){
    selectedMachine=data.machines.find(x=>x.machine_code===selectedMachine.machine_code)||null;
    renderSlots();
  }
@@ -232,7 +261,6 @@ $('name').oninput=updateBookButton;
 $('phone').oninput=updateBookButton;
 $('date').onchange=()=>{
  selectedTime=null;selectedDryer=null;
- $('queueLink').href='/queue?date='+encodeURIComponent($('date').value);
  $('queueLink').href='/queue?date='+encodeURIComponent($('date').value);
  $('adminLink').href='/admin?date='+encodeURIComponent($('date').value);
  load();
