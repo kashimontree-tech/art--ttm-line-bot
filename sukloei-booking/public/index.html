@@ -81,7 +81,8 @@
 <div id="status" class="status">ยังไม่ได้เลือกเวลา</div>
 </div>
 
-<a id="adminLink" class="admin" href="/admin">ดูตารางจองร้าน →</a>
+<a id="queueLink" class="admin" href="/queue">ดูวันและเวลาที่ยังว่าง →</a>
+<a id="adminLink" class="admin" href="/admin" style="font-size:13px;color:#6d7e77;margin-top:10px">เจ้าของร้าน • ดูชื่อและเบอร์โทรผู้จอง →</a>
 </div>
 
 <script>
@@ -99,6 +100,7 @@ const FALLBACK_MACHINES=[
 let data={machines:FALLBACK_MACHINES},selectedMachine=null,selectedDryer=null,selectedTime=null,bookingMode='single';
 const today=new Date(); const local=new Date(today.getTime()-today.getTimezoneOffset()*60000).toISOString().slice(0,10);
 $('date').value=local;$('date').min=local;
+$('queueLink').href='/queue?date='+encodeURIComponent($('date').value);
 $('adminLink').href='/admin?date='+encodeURIComponent($('date').value);
 
 function fmtHHMM(d){return d.toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit',hour12:false,timeZone:'Asia/Bangkok'})}
@@ -230,6 +232,8 @@ $('name').oninput=updateBookButton;
 $('phone').oninput=updateBookButton;
 $('date').onchange=()=>{
  selectedTime=null;selectedDryer=null;
+ $('queueLink').href='/queue?date='+encodeURIComponent($('date').value);
+ $('queueLink').href='/queue?date='+encodeURIComponent($('date').value);
  $('adminLink').href='/admin?date='+encodeURIComponent($('date').value);
  load();
 };
