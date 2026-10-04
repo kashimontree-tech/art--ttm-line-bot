@@ -12,7 +12,7 @@ h1{margin:0;font-size:34px}.tag{margin-top:6px;font-weight:700}.card{background:
 .top{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:end}label{font-weight:800;display:block;margin-bottom:6px}input{width:100%;padding:12px 14px;border:1px solid #d9e4df;border-radius:14px;font-size:16px}
 .legend{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px;font-size:14px}.dot{display:inline-flex;align-items:center;gap:6px}.box{width:16px;height:16px;border-radius:5px;border:1px solid #cfd9d4}.freeBox{background:#eaf9f1;border-color:#89cfa9}.busyBox{background:#eee}
 .machine{margin-top:16px;border:1px solid #e4ebe7;border-radius:18px;padding:14px}.machineHead{display:flex;justify-content:space-between;gap:8px;align-items:center}.machineHead b{font-size:17px}.machineHead small{color:var(--muted)}
-.slots{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-top:12px}.slot{padding:9px 6px;border-radius:11px;text-align:center;font-size:13px;font-weight:800}.free{background:#eaf9f1;color:#08753f;border:1px solid #a9dfbf;cursor:pointer;text-decoration:none;display:block}.free:active{transform:scale(.98);background:#d8f4e5}.busy{background:#eee;color:#8b8b8b;text-decoration:line-through;border:1px solid #ddd}
+.slots{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-top:12px}.slot{padding:9px 6px;border-radius:11px;text-align:center;font-size:13px;font-weight:800}.free{background:#eaf9f1;color:#08753f;border:1px solid #a9dfbf;cursor:pointer;text-decoration:none;display:block}.free:active{transform:scale(.98);background:#d8f4e5}.busy{background:#eee;color:#8b8b8b;text-decoration:line-through;border:1px solid #ddd}.past{background:#f1f1f1;color:#999;text-decoration:line-through;border:1px solid #ddd}
 .nav{display:flex;gap:10px;margin-top:16px}.btn{flex:1;text-align:center;text-decoration:none;padding:13px;border-radius:14px;font-weight:900}.primary{background:var(--g);color:#fff}.secondary{background:#fff;color:var(--g);border:1px solid #cfe1d8}
 .note{color:var(--muted);font-size:13px;margin-top:8px}
 @media(max-width:720px){.slots{grid-template-columns:repeat(3,1fr)}.top{grid-template-columns:1fr}.nav{flex-direction:column}}
@@ -34,7 +34,7 @@ h1{margin:0;font-size:34px}.tag{margin-top:6px;font-weight:700}.card{background:
 </div>
 <div class="legend">
 <span class="dot"><span class="box freeBox"></span> ว่าง • กดเพื่อจองได้เลย</span>
-<span class="dot"><span class="box busyBox"></span> มีคนจองแล้ว</span>
+<span class="dot"><span class="box busyBox"></span> มีคนจองแล้ว / เวลาผ่านแล้ว</span>
 </div>
 </div>
 
@@ -74,8 +74,11 @@ async function load(){
        const next=hour===23?'24:00':String(hour+1).padStart(2,'0')+':00';
        const start=new Date(date+'T'+hh+':00:00+07:00').getTime();
        const end=start+60*60000;
+       const isPast=start<=Date.now();
        const isBusy=(m.bookings||[]).some(b=>overlap(start,end,new Date(b.start_at).getTime(),new Date(b.end_at).getTime()));
-       if(isBusy){
+       if(isPast){
+         slots+=`<div class="slot past">${hh}:00-${next}<br>ผ่านเวลาแล้ว</div>`;
+       }else if(isBusy){
          slots+=`<div class="slot busy">${hh}:00-${next}<br>เต็ม</div>`;
        }else{
          const href='/?date='+encodeURIComponent(date)+'&machine='+encodeURIComponent(m.machine_code)+'&time='+encodeURIComponent(hh+':00');
