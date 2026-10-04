@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>ร้านซักเลย • คิวว่าง</title>
+<style>
+:root{--g:#08753f;--g2:#0a8d4d;--y:#ffd51f;--ink:#17392e;--muted:#6d7e77;--bg:#f5fbf8}
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,"Noto Sans Thai",sans-serif;background:linear-gradient(180deg,#ffda22,#fff6c8 28%,#f4fbf8);color:var(--ink)}
+.wrap{max-width:980px;margin:auto;padding:18px}.hero{background:linear-gradient(135deg,var(--g2),#075b33);color:#fff;border-radius:28px;padding:22px;box-shadow:0 16px 40px rgba(0,0,0,.12)}
+h1{margin:0;font-size:34px}.tag{margin-top:6px;font-weight:700}.card{background:#fff;border-radius:22px;padding:18px;margin-top:16px;box-shadow:0 8px 28px rgba(0,0,0,.07)}
+.top{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:end}label{font-weight:800;display:block;margin-bottom:6px}input{width:100%;padding:12px 14px;border:1px solid #d9e4df;border-radius:14px;font-size:16px}
+.legend{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px;font-size:14px}.dot{display:inline-flex;align-items:center;gap:6px}.box{width:16px;height:16px;border-radius:5px;border:1px solid #cfd9d4}.freeBox{background:#eaf9f1;border-color:#89cfa9}.busyBox{background:#eee}
+.machine{margin-top:16px;border:1px solid #e4ebe7;border-radius:18px;padding:14px}.machineHead{display:flex;justify-content:space-between;gap:8px;align-items:center}.machineHead b{font-size:17px}.machineHead small{color:var(--muted)}
+.slots{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-top:12px}.slot{padding:9px 6px;border-radius:11px;text-align:center;font-size:13px;font-weight:800}.free{background:#eaf9f1;color:#08753f;border:1px solid #a9dfbf}.busy{background:#eee;color:#8b8b8b;text-decoration:line-through;border:1px solid #ddd}
+.nav{display:flex;gap:10px;margin-top:16px}.btn{flex:1;text-align:center;text-decoration:none;padding:13px;border-radius:14px;font-weight:900}.primary{background:var(--g);color:#fff}.secondary{background:#fff;color:var(--g);border:1px solid #cfe1d8}
+.note{color:var(--muted);font-size:13px;margin-top:8px}
+@media(max-width:720px){.slots{grid-template-columns:repeat(3,1fr)}.top{grid-template-columns:1fr}.nav{flex-direction:column}}
+</style>
+</head>
+<body><div class="wrap">
+<div class="hero">
+<h1>ร้านซักเลย • เช็กคิวว่าง</h1>
+<div class="tag">ลูกค้าดูวันและเวลาว่างได้โดยไม่เห็นชื่อหรือเบอร์โทรของผู้จอง</div>
+</div>
+
+<div class="card">
+<div class="top">
+<div>
+<label>เลือกวันที่</label>
+<input id="date" type="date"/>
+</div>
+<div class="note">อัปเดตอัตโนมัติทุก 15 วินาที</div>
+</div>
+<div class="legend">
+<span class="dot"><span class="box freeBox"></span> ว่าง</span>
+<span class="dot"><span class="box busyBox"></span> มีคนจองแล้ว</span>
+</div>
+</div>
+
+<div id="list" class="card">กำลังโหลดคิว...</div>
+
+<div class="nav">
+<a id="bookLink" class="btn primary" href="/">จองเครื่องเลย</a>
+<a class="btn secondary" href="/">กลับหน้าหลัก</a>
+</div>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+const params=new URLSearchParams(location.search);
+const qsDate=params.get('date');
+const now=new Date();
+const local=new Date(now.getTime()-now.getTimezoneOffset()*60000).toISOString().slice(0,10);
+$('date').value=/^\d{4}-\d{2}-\d{2}$/.test(qsDate||'')?qsDate:local;
+$('date').min=local;
+
+function overlap(s,e,bs,be){return s<be&&e>bs}
+function machineIcon(t){return t==='WASHER'?'🧺':'♨️'}
+
+async function load(){
+ const date=$('date').value;
+ $('bookLink').href='/?date='+encodeURIComponent(date);
+ try{
+   const r=await fetch('/api/availability?date='+encodeURIComponent(date));
+   const d=await r.json();
+   if(!r.ok||!Array.isArray(d.machines)) throw new Error(d.error||'โหลดไม่สำเร็จ');
+
+   const machines=d.machines;
+   $('list').innerHTML=machines.map(m=>{
+     let slots='';
+     for(let hour=0;hour<24;hour++){
+       const hh=String(hour).padStart(2,'0');
+       const next=hour===23?'24:00':String(hour+1).padStart(2,'0')+':00';
+       const start=new Date(date+'T'+hh+':00:00+07:00').getTime();
+       const end=start+60*60000;
+       const isBusy=(m.bookings||[]).some(b=>overlap(start,end,new Date(b.start_at).getTime(),new Date(b.end_at).getTime()));
+       slots+=`<div class="slot ${isBusy?'busy':'free'}">${hh}:00-${next}<br>${isBusy?'เต็ม':'ว่าง'}</div>`;
+     }
+     return `<div class="machine">
+       <div class="machineHead">
+         <b>${machineIcon(m.machine_type)} ${m.name}</b>
+         <small>${m.machine_code} • ${m.capacity_kg} kg</small>
+       </div>
+       <div class="slots">${slots}</div>
+     </div>`;
+   }).join('');
+ }catch(e){
+   $('list').textContent='โหลดตารางคิวไม่สำเร็จ กรุณาลองใหม่';
+ }
+}
+$('date').onchange=()=>{
+ history.replaceState(null,'','/queue?date='+encodeURIComponent($('date').value));
+ load();
+};
+load();
+setInterval(load,15000);
+</script>
+</body>
+</html>
