@@ -211,6 +211,7 @@ app.get('/api/admin/bookings',async(req,res)=>{
   res.json(data||[]);
 });
 
+app.get('/queue',(req,res)=>res.sendFile(path.join(__dirname,'public','queue.html')));
 app.get('/admin',(req,res)=>res.sendFile(path.join(__dirname,'public','admin.html')));
 
 app.listen(PORT,()=>console.log('Sukloei booking listening on '+PORT));
