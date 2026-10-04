@@ -50,6 +50,56 @@ const SUPABASE_SECRET_KEY = process.env.SUPABASE_SECRET_KEY;
 let lastLinePushTarget = null;
 const pendingSukloeiNotifications = [];
 const SUKLOEI_RELAY_SECRET = process.env.SUKLOEI_RELAY_SECRET || "";
+const SUKLOEI_TARGET_KEY = "sukloei_family";
+
+async function loadPersistedLineTarget() {
+  if (!CLEAN_SUPABASE_URL || !CLEAN_SUPABASE_KEY) return null;
+  try {
+    const url = CLEAN_SUPABASE_URL.replace(/\/$/, "") +
+      "/rest/v1/line_push_targets?target_key=eq." + encodeURIComponent(SUKLOEI_TARGET_KEY) +
+      "&select=target_id&limit=1";
+    const r = await fetch(url, {
+      headers: {
+        apikey: CLEAN_SUPABASE_KEY,
+        Authorization: `Bearer ${CLEAN_SUPABASE_KEY}`
+      }
+    });
+    if (!r.ok) {
+      console.error("Load persisted LINE target failed:", r.status, await r.text());
+      return null;
+    }
+    const rows = await r.json();
+    return rows?.[0]?.target_id || null;
+  } catch (e) {
+    console.error("Load persisted LINE target error:", e);
+    return null;
+  }
+}
+
+async function persistLineTarget(targetId, sourceType) {
+  if (!targetId || !CLEAN_SUPABASE_URL || !CLEAN_SUPABASE_KEY) return;
+  try {
+    const url = CLEAN_SUPABASE_URL.replace(/\/$/, "") + "/rest/v1/line_push_targets";
+    const r = await fetch(url, {
+      method: "POST",
+      headers: {
+        apikey: CLEAN_SUPABASE_KEY,
+        Authorization: `Bearer ${CLEAN_SUPABASE_KEY}`,
+        "Content-Type": "application/json",
+        Prefer: "resolution=merge-duplicates"
+      },
+      body: JSON.stringify({
+        target_key: SUKLOEI_TARGET_KEY,
+        target_id: targetId,
+        source_type: sourceType || null,
+        updated_at: new Date().toISOString()
+      })
+    });
+    if (!r.ok) console.error("Persist LINE target failed:", r.status, await r.text());
+  } catch (e) {
+    console.error("Persist LINE target error:", e);
+  }
+}
 
 app.post("/internal/sukloei-notify", express.json(), async (req, res) => {
   try {
@@ -60,7 +110,11 @@ app.post("/internal/sukloei-notify", express.json(), async (req, res) => {
     if (!CHANNEL_ACCESS_TOKEN) {
       return res.status(500).json({ error: "LINE token missing" });
     }
-    const target = req.body?.target_id || lastLinePushTarget;
+    let target = req.body?.target_id || lastLinePushTarget;
+    if (!target) {
+      target = await loadPersistedLineTarget();
+      if (target) lastLinePushTarget = target;
+    }
     const text = String(req.body?.text || "").trim();
     if (!text) return res.status(400).json({ error: "text required" });
     if (!target) {
@@ -120,7 +174,14 @@ app.post("/webhook", express.raw({ type: "application/json" }), async (req, res)
 
     for (const event of body.events || []) {
       const source = event.source || {};
-      lastLinePushTarget = source.groupId || source.roomId || source.userId || lastLinePushTarget;
+      const capturedTarget = source.groupId || source.roomId || source.userId || null;
+      if (capturedTarget) {
+        lastLinePushTarget = capturedTarget;
+        persistLineTarget(
+          capturedTarget,
+          source.groupId ? "group" : source.roomId ? "room" : "user"
+        ).catch(err => console.error("Persist captured LINE target failed:", err));
+      }
 
       if (lastLinePushTarget && pendingSukloeiNotifications.length && CHANNEL_ACCESS_TOKEN) {
         const queued = pendingSukloeiNotifications.splice(0, pendingSukloeiNotifications.length);
