@@ -41,6 +41,7 @@ textarea{min-height:98px;resize:vertical}
 .sticky{position:fixed;left:0;right:0;bottom:0;background:#ffffffed;backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-top:1px solid #ded8cc;padding:10px 12px calc(10px + env(safe-area-inset-bottom));z-index:20;box-shadow:0 -6px 22px #00000012}
 .actions{max-width:940px;margin:auto;display:grid;grid-template-columns:1fr 1fr;gap:10px}
 #status{font-size:13px;font-weight:750;margin-top:10px;padding:8px 10px;border-radius:10px;background:#f8f5ee}
+.share-fallback{display:none;margin-top:12px;padding:12px;border:1px solid #e3d8bb;border-radius:14px;background:#fff9e9}.share-fallback.show{display:block}.share-fallback-title{font-weight:800;margin-bottom:8px}.browser-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}.share-preview{margin-top:12px}.share-preview img{display:block;width:100%;height:auto;border-radius:12px;border:1px solid #ddd6c9}.share-preview-note{font-size:12px;color:#6f6658;margin-top:7px;line-height:1.45}
 .links{display:grid;gap:8px;margin-top:10px}
 .links a{text-decoration:none;text-align:center}
 .ttm-copyright{max-width:940px!important;margin:0 auto 105px!important;padding:22px 16px!important;text-align:center!important;color:#6c6459!important;font-size:12px!important;line-height:1.7!important;border-top:1px solid #ded8cc}
@@ -52,7 +53,7 @@ textarea{min-height:98px;resize:vertical}
   .header-copy div{font-size:11px}
   main{padding:14px 10px 150px}
   .card{padding:15px;border-radius:17px}
-  .grid,.two,.actions{grid-template-columns:1fr}
+  .grid,.two,.actions,.browser-actions{grid-template-columns:1fr}
   .plan-row{grid-template-columns:40px minmax(0,1fr) 105px;gap:7px;padding:9px}.plan-name{font-size:13px}.plan-pct select{font-size:13px;padding:8px}.project-overview{grid-template-columns:1fr}.overall-ring{width:165px;height:165px}.overall-ring:before{width:118px;height:118px}.overall-ring-content strong{font-size:32px}.progress-bar-row{grid-template-columns:minmax(0,1fr) 1fr 46px;gap:7px}.photos{grid-template-columns:repeat(2,1fr)}
 }
 </style></head><body><header><div class="header-inner"><img class="company-logo" id="ttmLogo" alt="TTM HOME DESIGN & BUILD-IN logo"><div class="header-copy"><b>TTM DAILY REPORT</b><div>HOME DESIGN & BUILD-IN CO., LTD.</div></div></div></header><main>
@@ -67,7 +68,17 @@ textarea{min-height:98px;resize:vertical}
 <section class="card"><h3>‼️ ปัญหา / อุปสรรค</h3><textarea id="problems" placeholder="ถ้าไม่มีให้ใส่ -"></textarea></section>
 <section class="card"><h3>📈 ความคืบหน้า</h3><input id="progress" type="range" min="0" max="100" value="0"><b id="pct">0%</b></section>
 <section class="card"><h3>📷 รูปหน้างาน</h3><label class="upload">📸 ถ่ายรูป<input id="cam" type="file" accept="image/*" capture="environment" multiple></label><label class="upload">🖼️ เลือกรูป<input id="gal" type="file" accept="image/*" multiple></label><div id="photos" class="photos"></div></section>
-<section class="card"><h3>📤 Export / แชร์</h3><div class="grid"><button class="btn dark" id="pdfBtn">📄 สร้าง PDF พร้อมรูป</button><button class="btn gold" id="imgBtn">🖼️ สร้างรูปสรุป 1 รูป</button></div><button class="btn soft" id="bothBtn" style="width:100%;margin-top:8px">📲 สร้างทั้งสองไฟล์แล้วแชร์</button><button class="btn gold" id="lineBtn" style="width:100%;margin-top:8px">💬 เปิด LINE พร้อมข้อความ</button><div id="links" class="links"></div><div id="status"></div></section>
+<section class="card"><h3>📤 Export / แชร์</h3><div class="grid"><button class="btn dark" id="pdfBtn">📄 สร้าง PDF พร้อมรูป</button><button class="btn gold" id="imgBtn">🖼️ สร้างรูปสรุป 1 รูป</button></div><button class="btn soft" id="bothBtn" style="width:100%;margin-top:8px">📲 สร้าง PDF + รูป แล้วแชร์</button><button class="btn gold" id="lineBtn" style="width:100%;margin-top:8px">💬 เปิด LINE พร้อมข้อความ</button><div id="links" class="links"></div>
+  <div id="shareFallback" class="share-fallback">
+    <div class="share-fallback-title">📱 LINE ในแอปไม่รองรับการดาวน์โหลด/แชร์ไฟล์โดยตรง</div>
+    <div style="font-size:13px;line-height:1.5">อาร์ตสร้างไฟล์ให้แล้ว ให้เปิดเว็บนี้ด้วย Chrome หรือ Samsung Internet แล้วกดแชร์อีกครั้ง หรือแตะค้างที่รูปสรุปด้านล่างเพื่อบันทึก/ส่งต่อ</div>
+    <div class="browser-actions">
+      <button type="button" class="btn dark" id="openChromeBtn">เปิดใน Chrome</button>
+      <button type="button" class="btn soft" id="openSamsungBtn">เปิดใน Samsung Internet</button>
+    </div>
+    <div id="sharePreview" class="share-preview"></div>
+  </div>
+  <div id="status"></div></section>
 <footer class="ttm-copyright">
     <strong>© 2026 TTM HOME DESIGN & BUILD-IN CO., LTD.</strong><br>
     All Rights Reserved • TTM Daily Report System
@@ -124,9 +135,40 @@ x.textAlign='left';return c}
 const bcan=(c,t,q)=>new Promise(r=>c.toBlob(r,t,q));function name(ext){return 'TTM_Daily_Report_'+(($('project').value||'Project').replace(/[^A-Za-z0-9ก-๙_-]/g,'_'))+'_'+$('date').value+'.'+ext}
 function pdf(j,w,h){let e=new TextEncoder(),ps=[],o=0,ofs=[],put=v=>{let b=typeof v==='string'?e.encode(v):v;ps.push(b);o+=b.length},obj=(n,b)=>{ofs[n]=o;put(n+' 0 obj\n'+b+'\nendobj\n')},pw=595.28,ph=pw*h/w;put('%PDF-1.4\n');obj(1,'<< /Type /Catalog /Pages 2 0 R >>');obj(2,'<< /Type /Pages /Kids [3 0 R] /Count 1 >>');obj(3,'<< /Type /Page /Parent 2 0 R /MediaBox [0 0 '+pw+' '+ph+'] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>');ofs[4]=o;put('4 0 obj\n<< /Type /XObject /Subtype /Image /Width '+w+' /Height '+h+' /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length '+j.length+' >>\nstream\n');put(j);put('\nendstream\nendobj\n');let st='q\n'+pw+' 0 0 '+ph+' 0 0 cm\n/Im0 Do\nQ\n';obj(5,'<< /Length '+e.encode(st).length+' >>\nstream\n'+st+'endstream');let xr=o;put('xref\n0 6\n0000000000 65535 f \n');for(let i=1;i<=5;i++)put(String(ofs[i]).padStart(10,'0')+' 00000 n \n');put('trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n'+xr+'\n%%EOF');let n=ps.reduce((a,b)=>a+b.length,0),out=new Uint8Array(n),k=0;ps.forEach(b=>{out.set(b,k);k+=b.length});return out}
 function link(label,file,blob,cls){let a=document.createElement('a');a.href=URL.createObjectURL(blob);a.target='_blank';a.download=file.name;a.className='btn '+cls;a.textContent=label;$('links').appendChild(a)}
-async function makeImg(){try{$('status').textContent='กำลังสร้างรูปสรุป...';let c=await canvas(),bl=await bcan(c,'image/png'),f=new File([bl],name('png'),{type:'image/png'});lastImg=f;link('🖼️ เปิดรูปสรุป 1 รูป',f,bl,'gold');$('status').textContent='✅ สร้างรูปสรุปแล้ว';if(navigator.share&&(!navigator.canShare||navigator.canShare({files:[f]}))){try{await navigator.share({title:'TTM Daily Report',text:txt(),files:[f]})}catch(e){}}return f}catch(e){$('status').textContent='❌ สร้างรูปไม่สำเร็จ: '+e.message;throw e}}
+function isLineBrowser(){return /\bLINE\b/i.test(navigator.userAgent||'')}
+function showShareFallback(dataUrl){
+  const box=$('shareFallback');if(box)box.classList.add('show');
+  const pv=$('sharePreview');if(pv&&dataUrl)pv.innerHTML='<img src="'+dataUrl+'" alt="TTM Daily Report summary"><div class="share-preview-note">แตะค้างที่รูป เพื่อบันทึกภาพหรือส่งต่อได้ทันที</div>';
+}
+function openExternalBrowser(pkg){
+  const clean=location.href.replace(/^https?:\/\//,'');
+  location.href='intent://'+clean+'#Intent;scheme=https;package='+pkg+';end';
+}
+async function shareFilesNative(files){
+  if(!navigator.share)return false;
+  try{
+    if(navigator.canShare&&!navigator.canShare({files}))return false;
+    await navigator.share({title:'TTM Daily Report',text:txt(),files});
+    return true;
+  }catch(e){if(e&&e.name==='AbortError')return true;return false}
+}
+async function makeImg(){try{$('status').textContent='กำลังสร้างรูปสรุป...';let c=await canvas(),dataUrl=c.toDataURL('image/png'),bl=await bcan(c,'image/png'),f=new File([bl],name('png'),{type:'image/png'});lastImg=f;lastImg._ttmDataUrl=dataUrl;link('🖼️ เปิดรูปสรุป 1 รูป',f,bl,'gold');$('status').textContent='✅ สร้างรูปสรุปแล้ว';return f}catch(e){$('status').textContent='❌ สร้างรูปไม่สำเร็จ: '+e.message;throw e}}
 async function makePdf(){try{$('status').textContent='กำลังสร้าง PDF พร้อมรูป...';let c=await canvas(),jb=await bcan(c,'image/jpeg',.9),j=new Uint8Array(await jb.arrayBuffer()),bl=new Blob([pdf(j,c.width,c.height)],{type:'application/pdf'}),f=new File([bl],name('pdf'),{type:'application/pdf'});lastPdf=f;link('📄 เปิด PDF พร้อมรูป',f,bl,'dark');$('status').textContent='✅ สร้าง PDF พร้อมรูปแล้ว';if(navigator.share&&(!navigator.canShare||navigator.canShare({files:[f]}))){try{await navigator.share({title:'TTM Daily Report PDF',text:txt(),files:[f]})}catch(e){}}return f}catch(e){$('status').textContent='❌ สร้าง PDF ไม่สำเร็จ: '+e.message;throw e}}
-async function both(){let p=lastPdf||await makePdf(),i=lastImg||await makeImg();if(navigator.share&&(!navigator.canShare||navigator.canShare({files:[p,i]})))await navigator.share({title:'TTM Daily Report',text:txt(),files:[p,i]});else $('status').textContent='สร้างไฟล์แล้ว กดเปิดไฟล์แล้ว Share จาก iPhone/iPad'}
+async function both(){
+  try{
+    $('status').textContent='กำลังสร้าง PDF และรูปสรุป...';
+    let p=lastPdf||await makePdf(),i=lastImg||await makeImg();
+    if(isLineBrowser()){
+      showShareFallback(i._ttmDataUrl||'');
+      $('status').textContent='✅ สร้างไฟล์แล้ว — กรุณาเปิดด้วย Chrome/Samsung Internet เพื่อแชร์ไฟล์';
+      return;
+    }
+    if(await shareFilesNative([p,i])){$('status').textContent='✅ เปิดเมนูแชร์แล้ว';return}
+    if(await shareFilesNative([i])){$('status').textContent='✅ เปิดเมนูแชร์รูปสรุปแล้ว (PDF เปิดได้จากปุ่มด้านบน)';return}
+    showShareFallback(i._ttmDataUrl||'');
+    $('status').textContent='✅ สร้างไฟล์แล้ว — เบราว์เซอร์นี้ไม่รองรับแชร์ไฟล์โดยตรง';
+  }catch(e){$('status').textContent='❌ แชร์ไฟล์ไม่สำเร็จ: '+(e.message||e)}
+}
 function line(){location.href='https://line.me/R/msg/text/?'+encodeURIComponent(txt())}
-document.addEventListener('DOMContentLoaded',()=>{const lg=document.getElementById('ttmLogo');if(lg)lg.src=TTM_LOGO_URI;let d=new Date(),l=new Date(d-d.getTimezoneOffset()*60000);$('date').value=l.toISOString().slice(0,10);addSup();addSup();addTask('today','งานที่ทำวันนี้');addTask('today','งานที่ทำวันนี้');addTask('today','งานที่ทำวันนี้');addTask('tomorrow','งานที่ทำพรุ่งนี้');addTask('tomorrow','งานที่ทำพรุ่งนี้');addTask('tomorrow','งานที่ทำพรุ่งนี้');$('addSup').onclick=addSup;$('addToday').onclick=()=>addTask('today','งานที่ทำวันนี้');$('addTomorrow').onclick=()=>addTask('tomorrow','งานที่ทำพรุ่งนี้');$('cam').onchange=e=>addPics(e.target.files);$('gal').onchange=e=>addPics(e.target.files);let savedWp=[];try{savedWp=JSON.parse(localStorage.getItem('ttmWorkProgress')||'[]')}catch(e){}document.querySelectorAll('.work-progress').forEach((el,i)=>{if(savedWp[i]!=null)el.value=String(savedWp[i]);el.onchange=()=>{updateWorkProgress();localStorage.setItem('ttmWorkProgress',JSON.stringify(workProgressValues().map(x=>x.pct)))}});updateWorkProgress();$('progress').oninput=()=>$('pct').textContent=$('progress').value+'%';$('pdfBtn').onclick=makePdf;$('imgBtn').onclick=makeImg;$('bothBtn').onclick=both;$('lineBtn').onclick=line;$('shareBtn').onclick=line;$('saveBtn').onclick=()=>{localStorage.setItem('ttmDailyDraft',txt());$('status').textContent='✅ บันทึกแล้ว'}})
+document.addEventListener('DOMContentLoaded',()=>{const lg=document.getElementById('ttmLogo');if(lg)lg.src=TTM_LOGO_URI;let d=new Date(),l=new Date(d-d.getTimezoneOffset()*60000);$('date').value=l.toISOString().slice(0,10);addSup();addSup();addTask('today','งานที่ทำวันนี้');addTask('today','งานที่ทำวันนี้');addTask('today','งานที่ทำวันนี้');addTask('tomorrow','งานที่ทำพรุ่งนี้');addTask('tomorrow','งานที่ทำพรุ่งนี้');addTask('tomorrow','งานที่ทำพรุ่งนี้');$('addSup').onclick=addSup;$('addToday').onclick=()=>addTask('today','งานที่ทำวันนี้');$('addTomorrow').onclick=()=>addTask('tomorrow','งานที่ทำพรุ่งนี้');$('cam').onchange=e=>addPics(e.target.files);$('gal').onchange=e=>addPics(e.target.files);let savedWp=[];try{savedWp=JSON.parse(localStorage.getItem('ttmWorkProgress')||'[]')}catch(e){}document.querySelectorAll('.work-progress').forEach((el,i)=>{if(savedWp[i]!=null)el.value=String(savedWp[i]);el.onchange=()=>{updateWorkProgress();localStorage.setItem('ttmWorkProgress',JSON.stringify(workProgressValues().map(x=>x.pct)))}});updateWorkProgress();$('progress').oninput=()=>$('pct').textContent=$('progress').value+'%';$('pdfBtn').onclick=async()=>{let f=await makePdf();if(!isLineBrowser())await shareFilesNative([f])};$('imgBtn').onclick=async()=>{let f=await makeImg();if(isLineBrowser()){showShareFallback(f._ttmDataUrl||'');$('status').textContent='✅ สร้างรูปแล้ว — แตะค้างรูปด้านล่าง หรือเปิดด้วย Chrome เพื่อแชร์'}else if(!(await shareFilesNative([f]))){showShareFallback(f._ttmDataUrl||'')}};$('bothBtn').onclick=both;$('openChromeBtn').onclick=()=>openExternalBrowser('com.android.chrome');$('openSamsungBtn').onclick=()=>openExternalBrowser('com.sec.android.app.sbrowser');$('lineBtn').onclick=line;$('shareBtn').onclick=line;$('saveBtn').onclick=()=>{localStorage.setItem('ttmDailyDraft',txt());$('status').textContent='✅ บันทึกแล้ว'}})
 </script></body></html>
