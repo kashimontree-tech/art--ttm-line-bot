@@ -724,7 +724,7 @@ async function processTextEvent(event) {
   let answer;
   try {
     answer = directIdentityReply(userText, displayName) ||
-      (/(สลิป|slip)/i.test(userText) && /(อัลบั้ม|album|excel|เอ็กเซล|ยอดเงิน|จำนวนเงิน|สรุปยอด)/i.test(userText) ? await makeDetailedSlipAlbum(scopeId,displayName) : null) ||
+      (/(สลิป|slip|อัลบั้ม|album|เจมาร์ท|j.?mart)/i.test(userText) && /(อัลบั้ม|album|excel|เอ็กเซล|ยอดเงิน|จำนวนเงิน|สรุปยอด)/i.test(userText) ? await makeDetailedSlipAlbum(scopeId,displayName) : null) ||
       (/(สลิป|slip)/i.test(userText) && /(รวม|ทำไฟล์|pdf|พีดีเอฟ|สร้างไฟล์)/i.test(userText) ? await makeSlipReport(scopeId,displayName) : null) ||
       (wantsPdfConversion(userText) ? await convertLatestExcelToPdf(scopeId, displayName) : null) ||
       (wantsExcelConversion(userText) ? await convertLatestAttachmentToExcel(scopeId, displayName) : null) ||
