@@ -1,7 +1,7 @@
 const crypto=require("crypto");
 const XLSX=require("xlsx");
 const PDFDocument=require("pdfkit");
-function setupSlipAdmin(app,{supabaseRequest,createSupabaseSignedUrl,getThaiPdfFont}) {
+function setupSlipAdmin(app,{supabaseRequest,createSupabaseSignedUrl,getThaiPdfFont,uploadSupabaseFile,saveFileMemory}) {
  const adminPin=process.env.TTM_ALBUM_ADMIN_PIN;
  function auth(req,res,next) {
   if(!adminPin) return res.status(503).json({error:"Administrator PIN not configured"});
@@ -12,6 +12,20 @@ function setupSlipAdmin(app,{supabaseRequest,createSupabaseSignedUrl,getThaiPdfF
  app.get("/slip-admin",(req,res)=>res.redirect("/slip-admin.html"));
  app.get("/api/slip-admin/projects",auth,async(req,res)=>{try{const x=await supabaseRequest("ttm_slip_projects?select=name&order=name.asc",{method:"GET"});res.json({projects:(x||[]).map(r=>r.name)})}catch(e){res.status(500).json({error:e.message})}});
  app.post("/api/slip-admin/projects",auth,require("express").json(),async(req,res)=>{try{const name=String(req.body?.name||"").trim();if(!name||name.length>80)return res.status(400).json({error:"Invalid project name"});await supabaseRequest("ttm_slip_projects",{method:"POST",prefer:"return=minimal,resolution=merge-duplicates",body:JSON.stringify([{name}])});res.json({ok:true,name})}catch(e){res.status(500).json({error:e.message})}});
+ app.post("/api/slip-admin/upload",auth,require("express").json({limit:"22mb"}),async(req,res)=>{
+  try{
+    const b=req.body||{},album=String(b.album||"").trim(),filename=String(b.name||"upload.jpg").replace(/[^a-zA-Z0-9._-]/g,"_");
+    const mime=String(b.mime||"");
+    if(!album||!["image/jpeg","image/png"].includes(mime))return res.status(400).json({error:"Choose a project and JPEG/PNG image"});
+    const raw=String(b.base64||"");if(!/^[A-Za-z0-9+/=]+$/.test(raw))return res.status(400).json({error:"Invalid image data"});
+    const bytes=Buffer.from(raw,"base64");if(!bytes.length||bytes.length>12*1024*1024)return res.status(400).json({error:"Image must be under 12 MB"});
+    const scope="web:"+album;
+    const stored=await uploadSupabaseFile(bytes,scope,"web-upload",filename,mime);
+    const row={file_name:filename,mime_type:mime,storage_bucket:stored.bucket,storage_path:stored.storagePath,scope_id:scope,source_type:"web",message_type:"file",metadata:{album_name:album,slip_status:"pending",source:"web-upload"}};
+    await supabaseRequest("line_memories",{method:"POST",prefer:"return=minimal",body:JSON.stringify([row])});
+    res.json({ok:true});
+  }catch(e){console.error("Slip upload:",e);res.status(500).json({error:e.message})}
+ });
  app.get("/api/slip-admin/albums",auth,async(req,res)=>{
   try {
    const rows=await supabaseRequest("line_memories?select=id,file_name,mime_type,metadata,storage_bucket,storage_path,created_at,scope_id&order=created_at.desc&limit=1000",{method:"GET"});
