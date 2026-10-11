@@ -85,6 +85,20 @@ function setupSlipAdmin(app,{supabaseRequest,createSupabaseSignedUrl,getThaiPdfF
     doc.fontSize(9).text(`${i+1}. ${x.file_name}  |  ${m.slip_status||"pending"}  |  ${m.checked_amount??"unchecked"} THB`);
     if(doc.y>doc.page.height-60)doc.addPage();
    }
+   for(const x of unique){
+    if(!x.storage_bucket||!x.storage_path)continue;
+    try{
+      const signed=await createSupabaseSignedUrl(x.storage_bucket,x.storage_path,600);
+      const response=await fetch(signed);
+      if(!response.ok)throw Error("Image download HTTP "+response.status);
+      const image=Buffer.from(await response.arrayBuffer());
+      doc.addPage();
+      const m=x.metadata||{};
+      doc.font("Thai").fontSize(10).text(x.file_name+" | "+(m.slip_status||"pending")+" | "+(m.checked_amount??"unchecked")+" THB");
+      const top=doc.y+12;
+      doc.image(image,35,top,{fit:[doc.page.width-70,doc.page.height-top-35]});
+    }catch(err){console.error("Slip PDF image unavailable:",err)}
+   }
    doc.end();
   }catch(e){res.status(500).json({error:e.message})}
  });
