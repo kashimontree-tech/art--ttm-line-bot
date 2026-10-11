@@ -998,6 +998,8 @@ function slipAlbumName(text) {
   if (!match) return "ทั่วไป";
   let name=match[1].trim();
   name=name.replace(/\s*(?:pdf|excel|xlsx|พีดีเอฟ|เอ็กเซล|สรุป|รายงาน|อัปเดต|อัพเดท|เพิ่มเติม|ส่งออก|ให้|ครับ|ค่ะ|ด้วย|ล่าสุด).*$/i,"").trim();
+  const normalized=name.replace(/\\s+/g,"");
+  if (/^(?:เจมาร์|เจมาร์ท|เจมาร์ต|jaymart|jmart)(?:อุดร|อุดรธานี)$/i.test(normalized)) return "เจมาร์ทอุดร";
   return name.slice(0,60)||"ทั่วไป";
 }
 async function addLatestSlipToAlbum(scopeId,displayName,text) {
@@ -1020,11 +1022,12 @@ async function addLatestSlipToAlbum(scopeId,displayName,text) {
 async function makeDetailedSlipAlbum(scopeId, displayName, requestText = '') {
   const {readSlip,makeExports,makeReportPdf}=require("./slip-album");
   const rows=await supabaseRequest("line_memories?select=file_name,mime_type,storage_bucket,storage_path,metadata,created_at" +
-    `&scope_id=eq.${encodeURIComponent(scopeId)}&order=created_at.desc&limit=60`,{method:"GET"});
+    `&scope_id=eq.${encodeURIComponent(scopeId)}&order=created_at.desc&limit=500`,{method:"GET"});
   const album=slipAlbumName(requestText);
   const all=(rows||[]).filter(x=>/^image\/(jpeg|png)$/i.test(x.mime_type||"")&&x.storage_bucket&&x.storage_path);
   const chosen=album==="ทั่วไป" ? all : all.filter(x=>x.metadata?.album_name===album);
-  const picked=chosen.slice(0,50).reverse();
+  const unique=Array.from(new Map(chosen.map(x=>[x.storage_path,x])).values());
+  const picked=unique.slice().reverse();
   if(!picked.length) return `${displayName||"พี่"}ครับ ยังไม่มีสลิปที่บันทึกไว้ในกลุ่มนี้ครับ`;
   const items=[];
   for(const x of picked) {
