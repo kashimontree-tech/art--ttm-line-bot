@@ -724,6 +724,7 @@ async function processTextEvent(event) {
   let answer;
   try {
     answer = directIdentityReply(userText, displayName) ||
+      (/(อัปเดต|อัพเดท|เพิ่ม|แนบเพิ่ม)/i.test(userText) && /(รูป|สลิป|อัลบั้ม|ไฟล์)/i.test(userText) ? await addLatestSlipToAlbum(scopeId,displayName,userText) : null) ||
       (/(สลิป|slip|อัลบั้ม|album|เจมาร์ท|j.?mart)/i.test(userText) && /(อัลบั้ม|album|excel|เอ็กเซล|ยอดเงิน|จำนวนเงิน|สรุปยอด)/i.test(userText) ? await makeDetailedSlipAlbum(scopeId,displayName) : null) ||
       (/(สลิป|slip)/i.test(userText) && /(รวม|ทำไฟล์|pdf|พีดีเอฟ|สร้างไฟล์)/i.test(userText) ? await makeSlipReport(scopeId,displayName) : null) ||
       (wantsPdfConversion(userText) ? await convertLatestExcelToPdf(scopeId, displayName) : null) ||
@@ -991,6 +992,23 @@ async function createSupabaseSignedUrl(bucket, storagePath, expiresIn = 3600) {
   return signedPath.startsWith("http") ? signedPath : `${CLEAN_SUPABASE_URL}/storage/v1${signedPath}`;
 }
 
+function slipAlbumName(text) {
+  const m=String(text||"").match(/(?:อัลบั้ม|โครงการ)\s*([\u0e00-\u0e7fa-z0-9 _-]{2,50})/i);
+  const raw=m?.[1]?.split(/(?:\s*(?:และ|พร้อม|แล้ว|เป็นไฟล์|ให้|ครับ|ค่ะ|ด้วย|เพิ่มเติม|ล่าสุด|รูปนี้|สลิปนี้|สรุป|pdf|excel)\b)/i)[0]?.trim();
+  return (raw||"ทั่วไป").slice(0,50);
+}
+async function addLatestSlipToAlbum(scopeId, displayName, text) {
+  const album=slipAlbumName(text);
+  const files=await supabaseRequest("line_memories?select=id,file_name,mime_type,storage_bucket,storage_path,metadata,created_at"+
+    `&scope_id=eq.${encodeURIComponent(scopeId)}&order=created_at.desc&limit=80`,{method:"GET"});
+  const images=(files||[]).filter(x=>/^image\/(png|jpeg)$/i.test(x.mime_type||"")&&x.storage_bucket&&x.storage_path);
+  if(!images.length) return `${displayName||"พี่"}ครับ ไม่พบรูปที่บันทึกถาวรในกลุ่ม กรุณาส่งรูปเข้ากลุ่มก่อนครับ`;
+  const latest=images[0];
+  const meta={...(latest.metadata||{}),album_name:album};
+  await supabaseRequest(`line_memories?id=eq.${encodeURIComponent(latest.id)}`,{method:"PATCH",prefer:"return=minimal",body:JSON.stringify({metadata:meta})});
+  const count=images.filter(x=>(x.id===latest.id?album:x.metadata?.album_name)===album).length;
+  return `${displayName||"พี่"}ครับ เพิ่ม “${latest.file_name}” เข้าอัลบั้ม “${album}” แล้วครับ ✅ มี ${count} รูปในอัลบั้ม\nพิมพ์ “อาร์ตทำอัลบั้ม ${album} PDF Excel” เพื่อส่งออกรายงานฉบับอัปเดตครับ`;
+}
 async function makeDetailedSlipAlbum(scopeId, displayName) {
   const {readSlip,makeExports,makeReportPdf}=require("./slip-album");
   const rows=await supabaseRequest("line_memories?select=file_name,mime_type,storage_bucket,storage_path,created_at" +
