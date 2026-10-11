@@ -725,7 +725,7 @@ async function processTextEvent(event) {
   try {
     answer = directIdentityReply(userText, displayName) ||
       (/(อัปเดต|อัพเดท|เพิ่ม|แนบเพิ่ม)/i.test(userText) && /(รูป|สลิป|อัลบั้ม|ไฟล์)/i.test(userText) ? await addLatestSlipToAlbum(scopeId,displayName,userText) : null) ||
-      (/(สลิป|slip|อัลบั้ม|album|เจมาร์ท|j.?mart)/i.test(userText) && /(อัลบั้ม|album|excel|เอ็กเซล|ยอดเงิน|จำนวนเงิน|สรุปยอด)/i.test(userText) ? await makeDetailedSlipAlbum(scopeId,displayName) : null) ||
+      (/(สลิป|slip|อัลบั้ม|album|เจมาร์ท|j.?mart)/i.test(userText) && /(อัลบั้ม|album|excel|เอ็กเซล|ยอดเงิน|จำนวนเงิน|สรุปยอด)/i.test(userText) ? await makeDetailedSlipAlbum(scopeId,displayName,userText) : null) ||
       (/(สลิป|slip)/i.test(userText) && /(รวม|ทำไฟล์|pdf|พีดีเอฟ|สร้างไฟล์)/i.test(userText) ? await makeSlipReport(scopeId,displayName) : null) ||
       (wantsPdfConversion(userText) ? await convertLatestExcelToPdf(scopeId, displayName) : null) ||
       (wantsExcelConversion(userText) ? await convertLatestAttachmentToExcel(scopeId, displayName) : null) ||
@@ -1009,11 +1009,14 @@ async function addLatestSlipToAlbum(scopeId, displayName, text) {
   const count=images.filter(x=>(x.id===latest.id?album:x.metadata?.album_name)===album).length;
   return `${displayName||"พี่"}ครับ เพิ่ม “${latest.file_name}” เข้าอัลบั้ม “${album}” แล้วครับ ✅ มี ${count} รูปในอัลบั้ม\nพิมพ์ “อาร์ตทำอัลบั้ม ${album} PDF Excel” เพื่อส่งออกรายงานฉบับอัปเดตครับ`;
 }
-async function makeDetailedSlipAlbum(scopeId, displayName) {
+async function makeDetailedSlipAlbum(scopeId, displayName, requestText = '') {
   const {readSlip,makeExports,makeReportPdf}=require("./slip-album");
-  const rows=await supabaseRequest("line_memories?select=file_name,mime_type,storage_bucket,storage_path,created_at" +
+  const rows=await supabaseRequest("line_memories?select=file_name,mime_type,storage_bucket,storage_path,metadata,created_at" +
     `&scope_id=eq.${encodeURIComponent(scopeId)}&order=created_at.desc&limit=60`,{method:"GET"});
-  const picked=(rows||[]).filter(x=>/^image\/(jpeg|png)$/i.test(x.mime_type||"")&&x.storage_bucket&&x.storage_path).slice(0,15).reverse();
+  const album=slipAlbumName(arguments[2]||"");
+  const all=(rows||[]).filter(x=>/^image\/(jpeg|png)$/i.test(x.mime_type||"")&&x.storage_bucket&&x.storage_path);
+  const chosen=album==="ทั่วไป" ? all : all.filter(x=>x.metadata?.album_name===album);
+  const picked=chosen.slice(0,15).reverse();
   if(!picked.length) return `${displayName||"พี่"}ครับ ยังไม่มีสลิปที่บันทึกไว้ในกลุ่มนี้ครับ`;
   const items=[];
   for(const x of picked) {
