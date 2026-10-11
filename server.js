@@ -205,9 +205,10 @@ app.post("/webhook", express.raw({ type: "application/json" }), async (req, res)
         }
       }
       if (event.type === "message" && event.replyToken) {
+        const silentGroupAttachment = isGroupConversation(source);
         if (event.message?.type === "text") await processTextEvent(event);
-        else if (event.message?.type === "image") await processImageEvent(event);
-        else if (event.message?.type === "file") await processFileEvent(event);
+        else if (event.message?.type === "image") await processImageEvent(event, silentGroupAttachment);
+        else if (event.message?.type === "file") await processFileEvent(event, silentGroupAttachment);
       }
     }
   } catch (error) {
@@ -276,7 +277,29 @@ async function uploadOpenAIFile(bytes, fileName, mime) {
   return await r.json();
 }
 
-async function processFileEvent(event) {
+// Group chats only receive replies for a real LINE @mention of this bot or
+// a direct textual invocation. Personal 1:1 chats retain their normal behavior.
+function isGroupConversation(source) {
+  return source?.type === "group" || source?.type === "room" || Boolean(source?.groupId || source?.roomId);
+}
+
+function isArtInvoked(event) {
+  if (!isGroupConversation(event.source || {})) return true;
+  const message = event.message || {};
+  const text = String(message.text || "");
+  const mentions = message.mention?.mentionees || [];
+  const hasArtName = /(?:@\s*)?(?:อาร์ต|อาท|art(?:[\s_-]*ttm)?)(?=$|[\s,.:!?\u0E00-\u0E7F])/iu.test(text);
+  // LINE may provide an @mention with an opaque user ID. Resolve that
+  // identity using the known bot ID rather than responding to @anyone.
+  const botUserId = process.env.LINE_BOT_USER_ID || "";
+  const taggedBot = mentions.some(m =>
+    m.type === "all" ||
+    (m.type === "user" && Boolean(botUserId) && m.userId === botUserId)
+  );
+  return taggedBot || hasArtName;
+}
+
+async function processFileEvent(event, silent = false) {
   const source = event.source || {};
   const userId = source.userId || null;
   const scopeId = getScopeId(source);
@@ -311,10 +334,10 @@ async function processFileEvent(event) {
     const answer = extractOutputText(data) || `รับไฟล์ ${fileName} แล้วครับ`;
     await saveMessage({ lineMessageId: event.message.id || null, scopeId, userId, displayName: rawName, groupId: source.groupId || null, messageType: "file", text: `[ไฟล์: ${fileName}] ${answer}`, role: "user" });
     await saveFileMemory({ scopeId, userId, displayName: rawName, source, fileName, lineMessageId: event.message.id, openaiFileId: uploaded.id, mime, summary: answer, storageBucket: stored?.bucket || null, storagePath: stored?.storagePath || null });
-    await replyMessage(event.replyToken, `${displayName}ครับ อาร์ตอ่านและบันทึกไฟล์ “${fileName}” แล้วครับ\n${answer.slice(0, 3500)}`);
+    if (!silent) await replyMessage(event.replyToken, `${displayName}ครับ อาร์ตอ่านและบันทึกไฟล์ “${fileName}” แล้วครับ\n${answer.slice(0, 3500)}`);
   } catch (e) {
     console.error("File processing error:", e);
-    await replyMessage(event.replyToken, `${displayName}ครับ อาร์ตรับไฟล์ “${fileName}” แล้ว แต่ยังอ่านเนื้อหาไม่สำเร็จครับ`);
+    if (!silent) await replyMessage(event.replyToken, `${displayName}ครับ อาร์ตรับไฟล์ “${fileName}” แล้ว แต่ยังอ่านเนื้อหาไม่สำเร็จครับ`);
   }
 }
 
@@ -334,7 +357,7 @@ async function saveFileMemory({ scopeId, userId, displayName, source, fileName, 
   });
 }
 
-async function processImageEvent(event) {
+async function processImageEvent(event, silent = false) {
   const source = event.source || {};
   const userId = source.userId || null;
   const scopeId = getScopeId(source);
@@ -369,10 +392,10 @@ async function processImageEvent(event) {
       console.error("Image message persistence error (non-blocking):", dbError);
     }
 
-    await replyMessage(event.replyToken, answer);
+    if (!silent) await replyMessage(event.replyToken, answer);
   } catch (e) {
     console.error("Image processing error:", e);
-    await replyMessage(event.replyToken, `${displayName}ครับ ตอนนี้อาร์ตอ่านรูปนี้ไม่สำเร็จ กรุณาลองส่งรูปใหม่อีกครั้งครับ`);
+    if (!silent) await replyMessage(event.replyToken, `${displayName}ครับ ตอนนี้อาร์ตอ่านรูปนี้ไม่สำเร็จ กรุณาลองส่งรูปใหม่อีกครั้งครับ`);
   }
 }
 
@@ -678,7 +701,7 @@ async function processTextEvent(event) {
     console.error("Supabase write error:", error);
   }
 
-  let recentContext = "";
+  if (!isArtInvoked(event)) return; // Remember group context, but do not interrupt normal chat.\n\n  let recentContext = "";
   let memberContext = "";
   let longTermMemory = "";
   try {
