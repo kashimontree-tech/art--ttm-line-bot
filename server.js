@@ -1008,7 +1008,9 @@ async function addLatestSlipToAlbum(scopeId,displayName,text) {
   if(!pictures.length) return `${displayName||"พี่"}ครับ ยังไม่มีรูปที่บันทึกในกลุ่ม กรุณาส่งรูปเข้ากลุ่มก่อนครับ`;
   const album=requested!=="ทั่วไป" ? requested : (pictures.find(x=>x.metadata?.album_name)?.metadata.album_name||"ทั่วไป");
   // Do not keep claiming success for the same photo: take the newest image not yet in this album.
-  const latest=pictures.find(x=>x.metadata?.album_name!==album);
+  const latest=pictures[0];
+  if (Date.now()-new Date(latest.created_at).getTime()>15*60*1000) return `${displayName||"พี่"}ครับ รูปล่าสุดเกิน 15 นาทีแล้ว กรุณาส่งรูปใหม่แล้วสั่งอัปเดตอีกครั้งครับ`;
+  if (latest.metadata?.album_name===album) return `${displayName||"พี่"}ครับ รูปล่าสุดอยู่ในอัลบั้ม “${album}” แล้ว ไม่เพิ่มซ้ำครับ`;
   if(!latest) return `${displayName||"พี่"}ครับ รูปทั้งหมดที่บอทได้รับอยู่ในอัลบั้ม “${album}” แล้ว ไม่มีรูปใหม่ให้เพิ่มครับ`;
   const meta={...(latest.metadata||{}),album_name:album};
   await supabaseRequest(`line_memories?id=eq.${encodeURIComponent(latest.id)}`,{method:"PATCH",prefer:"return=minimal",body:JSON.stringify({metadata:meta})});
