@@ -995,14 +995,15 @@ async function createSupabaseSignedUrl(bucket, storagePath, expiresIn = 3600) {
 function slipAlbumName(text) {
   const m=String(text||"").match(/(?:อัลบั้ม|โครงการ)\s*([\u0e00-\u0e7fa-z0-9 _-]{2,50})/i);
   const raw=m?.[1]?.split(/(?:\s*(?:และ|พร้อม|แล้ว|เป็นไฟล์|ให้|ครับ|ค่ะ|ด้วย|เพิ่มเติม|ล่าสุด|รูปนี้|สลิปนี้|สรุป|pdf|excel)\b)/i)[0]?.trim();
-  return (raw||"ทั่วไป").slice(0,50);
+  return (raw||"ทั่วไป").replace(/^(?:รูป|รูปสลิป|สลิป|ภาพสลิป)\s*/,"").trim().slice(0,50)||"ทั่วไป";
 }
 async function addLatestSlipToAlbum(scopeId, displayName, text) {
-  const album=slipAlbumName(text);
+  let album=slipAlbumName(text);
   const files=await supabaseRequest("line_memories?select=id,file_name,mime_type,storage_bucket,storage_path,metadata,created_at"+
     `&scope_id=eq.${encodeURIComponent(scopeId)}&order=created_at.desc&limit=80`,{method:"GET"});
   const images=(files||[]).filter(x=>/^image\/(png|jpeg)$/i.test(x.mime_type||"")&&x.storage_bucket&&x.storage_path);
   if(!images.length) return `${displayName||"พี่"}ครับ ไม่พบรูปที่บันทึกถาวรในกลุ่ม กรุณาส่งรูปเข้ากลุ่มก่อนครับ`;
+  if (album==="ทั่วไป") album=images.find(x=>x.metadata?.album_name)?.metadata.album_name || "ทั่วไป";
   const latest=images[0];
   const meta={...(latest.metadata||{}),album_name:album};
   await supabaseRequest(`line_memories?id=eq.${encodeURIComponent(latest.id)}`,{method:"PATCH",prefer:"return=minimal",body:JSON.stringify({metadata:meta})});
@@ -1013,7 +1014,7 @@ async function makeDetailedSlipAlbum(scopeId, displayName, requestText = '') {
   const {readSlip,makeExports,makeReportPdf}=require("./slip-album");
   const rows=await supabaseRequest("line_memories?select=file_name,mime_type,storage_bucket,storage_path,metadata,created_at" +
     `&scope_id=eq.${encodeURIComponent(scopeId)}&order=created_at.desc&limit=60`,{method:"GET"});
-  const album=slipAlbumName(arguments[2]||"");
+  const album=slipAlbumName(requestText);
   const all=(rows||[]).filter(x=>/^image\/(jpeg|png)$/i.test(x.mime_type||"")&&x.storage_bucket&&x.storage_path);
   const chosen=album==="ทั่วไป" ? all : all.filter(x=>x.metadata?.album_name===album);
   const picked=chosen.slice(0,15).reverse();
