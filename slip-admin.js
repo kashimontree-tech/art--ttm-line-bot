@@ -10,6 +10,8 @@ function setupSlipAdmin(app,{supabaseRequest,createSupabaseSignedUrl,getThaiPdfF
   next();
  }
  app.get("/slip-admin",(req,res)=>res.redirect("/slip-admin.html"));
+ app.get("/api/slip-admin/projects",auth,async(req,res)=>{try{const x=await supabaseRequest("ttm_slip_projects?select=name&order=name.asc",{method:"GET"});res.json({projects:(x||[]).map(r=>r.name)})}catch(e){res.status(500).json({error:e.message})}});
+ app.post("/api/slip-admin/projects",auth,require("express").json(),async(req,res)=>{try{const name=String(req.body?.name||"").trim();if(!name||name.length>80)return res.status(400).json({error:"Invalid project name"});await supabaseRequest("ttm_slip_projects",{method:"POST",prefer:"return=minimal,resolution=merge-duplicates",body:JSON.stringify([{name}])});res.json({ok:true,name})}catch(e){res.status(500).json({error:e.message})}});
  app.get("/api/slip-admin/albums",auth,async(req,res)=>{
   try {
    const rows=await supabaseRequest("line_memories?select=id,file_name,mime_type,metadata,storage_bucket,storage_path,created_at,scope_id&order=created_at.desc&limit=1000",{method:"GET"});
