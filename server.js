@@ -331,12 +331,18 @@ async function processFileEvent(event, silent = false) {
     if (!response.ok) throw new Error(`OpenAI file read error ${response.status}: ${await response.text()}`);
     const data = await response.json();
     const answer = extractOutputText(data) || `รับไฟล์ ${fileName} แล้วครับ`;
-    await saveMessage({ lineMessageId: event.message.id || null, scopeId, userId, displayName: rawName, groupId: source.groupId || null, messageType: "file", text: `[ไฟล์: ${fileName}] ${answer}`, role: "user" });
-    await saveFileMemory({ scopeId, userId, displayName: rawName, source, fileName, lineMessageId: event.message.id, openaiFileId: uploaded.id, mime, summary: answer, storageBucket: stored?.bucket || null, storagePath: stored?.storagePath || null });
-    if (!silent) await replyMessage(event.replyToken, `${displayName}ครับ อาร์ตอ่านและบันทึกไฟล์ “${fileName}” แล้วครับ\n${answer.slice(0, 3500)}`);
+    try {
+      await saveMessage({ lineMessageId: event.message.id || null, scopeId, userId, displayName: rawName, groupId: source.groupId || null, messageType: "file", text: `[ไฟล์: ${fileName}] ${answer}`, role: "user" });
+    } catch (e) { console.error("File chat log failed (non-blocking):", e); }
+    if (stored) {
+      try {
+        await saveFileMemory({ scopeId, userId, displayName: rawName, source, fileName, lineMessageId: event.message.id, openaiFileId: uploaded.id, mime, summary: answer, storageBucket: stored.bucket, storagePath: stored.storagePath });
+      } catch (e) { console.error("File metadata save failed (non-blocking):", e); }
+    }
+    if (!silent) await replyMessage(event.replyToken, `${displayName}ครับ อาร์ตอ่านไฟล์ “${fileName}” แล้วครับ${stored ? " และเก็บต้นฉบับลง Storage แล้ว" : " แต่ยังเก็บต้นฉบับถาวรไม่ได้ (คลังไฟล์มีปัญหา)"}\n${answer.slice(0, 3500)}`);
   } catch (e) {
     console.error("File processing error:", e);
-    if (!silent) await replyMessage(event.replyToken, `${displayName}ครับ อาร์ตรับไฟล์ “${fileName}” แล้ว แต่ยังอ่านเนื้อหาไม่สำเร็จครับ`);
+    if (!silent) await replyMessage(event.replyToken, `${displayName}ครับ อาร์ตรับไฟล์ “${fileName}” ไว้ชั่วคราวแล้ว แต่ขั้นตอนอ่านหรือบันทึกยังไม่สำเร็จครับ (${stored ? "เก็บต้นฉบับใน Storage แล้ว" : "Storage ยังเชื่อมต่อไม่ได้"})`);
   }
 }
 
