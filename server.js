@@ -724,6 +724,7 @@ async function processTextEvent(event) {
   let answer;
   try {
     answer = directIdentityReply(userText, displayName) ||
+      (/(สลิป|slip)/i.test(userText) && /(รวม|ทำไฟล์|pdf|พีดีเอฟ|สร้างไฟล์)/i.test(userText) ? await makeSlipReport(scopeId,displayName) : null) ||
       (wantsPdfConversion(userText) ? await convertLatestExcelToPdf(scopeId, displayName) : null) ||
       (wantsExcelConversion(userText) ? await convertLatestAttachmentToExcel(scopeId, displayName) : null) ||
       await maybeSaveLatestAttachment(userText, scopeId, displayName) ||
@@ -987,6 +988,26 @@ async function createSupabaseSignedUrl(bucket, storagePath, expiresIn = 3600) {
   const signedPath = data.signedURL || data.signedUrl || data.signed_url;
   if (!signedPath) throw new Error("Supabase did not return a signed URL");
   return signedPath.startsWith("http") ? signedPath : `${CLEAN_SUPABASE_URL}/storage/v1${signedPath}`;
+}
+
+async function makeSlipReport(scopeId, displayName) {
+  const {createSlipPdf} = require("./slip-report");
+  const rows = await supabaseRequest("line_memories?select=file_name,mime_type,storage_bucket,storage_path,created_at" +
+    `&scope_id=eq.${encodeURIComponent(scopeId)}&order=created_at.desc&limit=40`, {method:"GET"});
+  const pictures = (rows || []).filter(x => /^image\/(png|jpeg)$/i.test(x.mime_type || "") && x.storage_bucket && x.storage_path).slice(0,15);
+  if (!pictures.length) return `${displayName || "พี่"}ครับ ยังไม่มีรูปสลิปในคลัง กรุณาส่งรูปเข้ากลุ่มอีกครั้งครับ`;
+  const images = [];
+  for (const pic of pictures.reverse()) {
+    try { images.push({bytes:await downloadSupabaseFile(pic.storage_bucket,pic.storage_path)}); }
+    catch(error){console.error("Slip load error:",error);}
+  }
+  if (!images.length) return `${displayName || "พี่"}ครับ ไม่สามารถเปิดรูปที่เก็บไว้ได้ครับ`;
+  const bytes = await createSlipPdf(images);
+  const fileName = `TTM_Slip_Report_${Date.now()}.pdf`;
+  const stored = await uploadSupabaseFile(bytes,scopeId,"slip-report",fileName,"application/pdf");
+  const url = await createSupabaseSignedUrl(stored.bucket,stored.storagePath,3600);
+  await saveFileMemory({scopeId,userId:null,displayName:"Art TTM",source:{type:"bot"},fileName,lineMessageId:null,openaiFileId:null,mime:"application/pdf",summary:`รวมภาพสลิป ${images.length} รูป`,storageBucket:stored.bucket,storagePath:stored.storagePath});
+  return `${displayName || "พี่"}ครับ รวมรูปสลิป ${images.length} รูปเป็น PDF แล้วครับ\n${fileName}\n${url}\nลิงก์ใช้ได้ 1 ชั่วโมงครับ`;
 }
 
 async function maybeSaveLatestAttachment(text, scopeId, displayName) {
