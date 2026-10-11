@@ -5,7 +5,7 @@ const PDFDocument = require("pdfkit");
 
 const app = express();
 app.get("/slip-admin.html", (req,res) => res.sendFile(require("path").join(__dirname,"slip-admin.html")));
-require("./slip-admin").setupSlipAdmin(app,{supabaseRequest,createSupabaseSignedUrl,getThaiPdfFont});
+require("./slip-admin").setupSlipAdmin(app,{supabaseRequest,createSupabaseSignedUrl,getThaiPdfFont,uploadSupabaseFile,saveFileMemory});
 const liveFileCache = new Map();
 const downloadTokens = new Map();
 
