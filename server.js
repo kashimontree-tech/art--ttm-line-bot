@@ -998,7 +998,7 @@ function slipAlbumName(text) {
   if (!match) return "ทั่วไป";
   let name=match[1].trim();
   name=name.replace(/\s*(?:pdf|excel|xlsx|พีดีเอฟ|เอ็กเซล|สรุป|รายงาน|อัปเดต|อัพเดท|เพิ่มเติม|ส่งออก|ให้|ครับ|ค่ะ|ด้วย|ล่าสุด).*$/i,"").trim();
-  const normalized=name.replace(/\\s+/g,"");
+  const normalized=name.replace(/\s+/g,"");
   if (/^(?:เจมาร์|เจมาร์ท|เจมาร์ต|jaymart|jmart)(?:อุดร|อุดรธานี)$/i.test(normalized)) return "เจมาร์ทอุดร";
   return name.slice(0,60)||"ทั่วไป";
 }
