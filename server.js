@@ -724,6 +724,7 @@ async function processTextEvent(event) {
   let answer;
   try {
     answer = directIdentityReply(userText, displayName) ||
+      (/(สลิป|slip)/i.test(userText) && /(อัลบั้ม|album|excel|เอ็กเซล|ยอดเงิน|จำนวนเงิน|สรุปยอด)/i.test(userText) ? await makeDetailedSlipAlbum(scopeId,displayName) : null) ||
       (/(สลิป|slip)/i.test(userText) && /(รวม|ทำไฟล์|pdf|พีดีเอฟ|สร้างไฟล์)/i.test(userText) ? await makeSlipReport(scopeId,displayName) : null) ||
       (wantsPdfConversion(userText) ? await convertLatestExcelToPdf(scopeId, displayName) : null) ||
       (wantsExcelConversion(userText) ? await convertLatestAttachmentToExcel(scopeId, displayName) : null) ||
@@ -988,6 +989,40 @@ async function createSupabaseSignedUrl(bucket, storagePath, expiresIn = 3600) {
   const signedPath = data.signedURL || data.signedUrl || data.signed_url;
   if (!signedPath) throw new Error("Supabase did not return a signed URL");
   return signedPath.startsWith("http") ? signedPath : `${CLEAN_SUPABASE_URL}/storage/v1${signedPath}`;
+}
+
+async function makeDetailedSlipAlbum(scopeId, displayName) {
+  const {readSlip,makeExports,makeReportPdf}=require("./slip-album");
+  const rows=await supabaseRequest("line_memories?select=file_name,mime_type,storage_bucket,storage_path,created_at" +
+    `&scope_id=eq.${encodeURIComponent(scopeId)}&order=created_at.desc&limit=60`,{method:"GET"});
+  const picked=(rows||[]).filter(x=>/^image\/(jpeg|png)$/i.test(x.mime_type||"")&&x.storage_bucket&&x.storage_path).slice(0,15).reverse();
+  if(!picked.length) return `${displayName||"พี่"}ครับ ยังไม่มีสลิปที่บันทึกไว้ในกลุ่มนี้ครับ`;
+  const items=[];
+  for(const x of picked) {
+    try {
+      const bytes=await downloadSupabaseFile(x.storage_bucket,x.storage_path);
+      let fields={amount:null,date:"",reference:"",sender:"",receiver:"",confidence:"low"};
+      try { fields=await readSlip({bytes,mime:x.mime_type},CLEAN_OPENAI_KEY); }
+      catch(e){console.error("Slip recognition failed:",e);}
+      items.push({...fields,bytes,fileName:x.file_name||"slip"});
+    } catch(e){console.error("Slip download failed:",e);}
+  }
+  if(!items.length) return `${displayName||"พี่"}ครับ โหลดรูปสลิปไม่ได้ กรุณาลองใหม่ครับ`;
+  const {excel,total,excluded}=makeExports(items);
+  const pdf=await makeReportPdf(items,await getThaiPdfFont());
+  const stamp=Date.now();
+  const out=[];
+  for(const [name,bytes,mime] of [
+    [`TTM_Slip_Album_${stamp}.pdf`,pdf,"application/pdf"],
+    [`TTM_Slip_Summary_${stamp}.xlsx`,excel,"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"]
+  ]) {
+    const stored=await uploadSupabaseFile(bytes,scopeId,"slip-album",name,mime);
+    const url=await createSupabaseSignedUrl(stored.bucket,stored.storagePath,3600);
+    out.push(name+"\n"+url);
+    try{await saveFileMemory({scopeId,userId:null,displayName:"Art TTM",source:{type:"bot"},fileName:name,lineMessageId:null,openaiFileId:null,mime,summary:"Slip album export",storageBucket:stored.bucket,storagePath:stored.storagePath});}
+    catch(e){console.error("Slip album memory error:",e);}
+  }
+  return `${displayName||"พี่"}ครับ ทำอัลบั้ม PDF และ Excel จาก ${items.length} รูปแล้วครับ\nยอดที่ AI อ่านได้ความมั่นใจสูง: ${total.toLocaleString("en-US",{minimumFractionDigits:2})} บาท\nรอตรวจสอบ: ${excluded} รูป\nยังไม่ใช่ยอดบัญชีที่ยืนยันแล้ว ต้องตรวจสลิปซ้ำครับ\n\n${out.join("\n\n")}\nลิงก์ใช้ได้ 1 ชั่วโมงครับ`;
 }
 
 async function makeSlipReport(scopeId, displayName) {
