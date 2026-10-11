@@ -562,50 +562,48 @@ async function convertLatestExcelToPdf(scopeId, displayName) {
       doc.on("error", reject);
       doc.registerFont("Thai", thaiFont);
 
+      // Render every Excel column. Wide sheets are split into 8-column bands,
+      // with all rows repeated in each band so BOQ price columns are never lost.
       for (const sheetName of workbook.SheetNames) {
         const ws = workbook.Sheets[sheetName];
-        const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", raw: false });
-        doc.addPage();
-        doc.font("Thai").fontSize(13).text(String(sheetName), { align: "left" });
-        doc.moveDown(0.5);
-
-        const pageWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+        const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", raw: false, blankrows: false });
         const maxCols = Math.max(1, ...rows.map(r => Array.isArray(r) ? r.length : 0));
-        const colWidth = Math.max(60, pageWidth / Math.min(maxCols, 8));
-        const renderCols = Math.min(maxCols, 8);
-
-        doc.fontSize(7);
-        for (const row of rows) {
-          const vals = Array.isArray(row) ? row : [];
-          const texts = [];
-          for (let i = 0; i < renderCols; i++) texts.push(String(vals[i] ?? ""));
-
-          const heights = texts.map(t => doc.heightOfString(t || " ", { width: colWidth - 6, lineGap: 1 }));
-          const rowH = Math.max(18, Math.min(64, ...heights)) + 6;
-
-          if (doc.y + rowH > doc.page.height - doc.page.margins.bottom) {
+        const columnsPerPage = 8;
+        for (let colStart = 0; colStart < maxCols; colStart += columnsPerPage) {
+          const colEnd = Math.min(maxCols, colStart + columnsPerPage);
+          const renderCols = colEnd - colStart;
+          const addTablePage = (continued = false) => {
             doc.addPage();
-            doc.font("Thai").fontSize(13).text(String(sheetName) + " (ต่อ)", { align: "left" });
+            doc.font("Thai").fontSize(12).text(
+              String(sheetName) + (maxCols > columnsPerPage ? ` (คอลัมน์ ${colStart + 1}-${colEnd} จาก ${maxCols})` : "") + (continued ? " (ต่อ)" : ""),
+              { align: "left" }
+            );
             doc.moveDown(0.4);
-            doc.fontSize(7);
+            doc.font("Thai").fontSize(7);
+          };
+          addTablePage();
+          const pageWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+          const colWidth = pageWidth / renderCols;
+          for (const row of rows) {
+            const vals = Array.isArray(row) ? row : [];
+            const texts = Array.from({ length: renderCols }, (_, i) => String(vals[colStart + i] ?? ""));
+            doc.font("Thai").fontSize(7);
+            const heights = texts.map(t => doc.heightOfString(t || " ", { width: colWidth - 8, lineGap: 1 }));
+            const rowH = Math.max(20, Math.min(96, Math.max(...heights) + 8));
+            if (doc.y + rowH > doc.page.height - doc.page.margins.bottom) addTablePage(true);
+            const y = doc.y;
+            let x = doc.page.margins.left;
+            for (let i = 0; i < renderCols; i++) {
+              doc.rect(x, y, colWidth, rowH).stroke();
+              doc.font("Thai").fontSize(7).text(texts[i], x + 4, y + 4, {
+                width: colWidth - 8, height: rowH - 8, ellipsis: true, lineGap: 1
+              });
+              x += colWidth;
+            }
+            doc.y = y + rowH;
           }
-
-          const y = doc.y;
-          let x = doc.page.margins.left;
-          for (let i = 0; i < renderCols; i++) {
-            doc.rect(x, y, colWidth, rowH).stroke();
-            doc.font("Thai").fontSize(7).text(texts[i], x + 3, y + 3, {
-              width: colWidth - 6,
-              height: rowH - 6,
-              ellipsis: true,
-              lineGap: 1
-            });
-            x += colWidth;
-          }
-          doc.y = y + rowH;
         }
       }
-
       doc.end();
     } catch (e) {
       reject(e);
@@ -616,27 +614,32 @@ async function convertLatestExcelToPdf(scopeId, displayName) {
   const outName = `${stem}.pdf`;
   cacheLiveFile(scopeId, outName, "application/pdf", pdfBytes);
 
+  let downloadUrl = null;
+  let isPersistentLink = false;
   try {
     const stored = await uploadSupabaseFile(pdfBytes, scopeId, "generated-pdf", outName, "application/pdf");
-    await saveFileMemory({
-      scopeId,
-      userId: null,
-      displayName: "Art TTM",
-      source: { type: "bot" },
-      fileName: outName,
-      lineMessageId: null,
-      openaiFileId: null,
-      mime: "application/pdf",
-      summary: `PDF converted from ${source.fileName}`,
-      storageBucket: stored.bucket,
-      storagePath: stored.storagePath
-    });
+    try {
+      await saveFileMemory({
+        scopeId, userId: null, displayName: "Art TTM", source: { type: "bot" },
+        fileName: outName, lineMessageId: null, openaiFileId: null,
+        mime: "application/pdf", summary: `PDF converted from ${source.fileName}`,
+        storageBucket: stored.bucket, storagePath: stored.storagePath
+      });
+    } catch (memoryError) {
+      console.error("Save PDF memory failed (non-blocking):", memoryError);
+    }
+    downloadUrl = await createSupabaseSignedUrl(stored.bucket, stored.storagePath, 3600);
+    isPersistentLink = true;
   } catch (e) {
-    console.error("Persist generated PDF error (non-blocking):", e);
+    console.error("Persist/sign generated PDF failed; using live fallback:", e);
   }
+  if (!downloadUrl) {
+    const dl = createLiveDownload(scopeId, outName);
+    downloadUrl = dl?.url || null;
+  }
+  if (!downloadUrl) throw new Error("Unable to create PDF download URL");
+  return `${displayName || "พี่"}ครับ แปลง Excel เป็น PDF ให้แล้วครับ ✅\n\nไฟล์: ${outName}\nดาวน์โหลด:\n${downloadUrl}\n\nลิงก์ใช้ได้ 1 ชั่วโมงครับ`;
 
-  const dl = createLiveDownload(scopeId, outName);
-  return `${displayName || "พี่"}ครับ แปลง Excel เป็น PDF ให้แล้วครับ ✅\n\nไฟล์: ${outName}\nดาวน์โหลด:\n${dl.url}\n\nลิงก์ใช้ได้ 1 ชั่วโมงครับ`;
 }
 
 function wantsExcelConversion(text) {
