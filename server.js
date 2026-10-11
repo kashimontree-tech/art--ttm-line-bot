@@ -293,8 +293,7 @@ function isArtInvoked(event) {
   // identity using the known bot ID rather than responding to @anyone.
   const botUserId = process.env.LINE_BOT_USER_ID || "";
   const taggedBot = mentions.some(m =>
-    m.type === "all" ||
-    (m.type === "user" && Boolean(botUserId) && m.userId === botUserId)
+    m.type === "user" && Boolean(botUserId) && m.userId === botUserId
   );
   return taggedBot || hasArtName;
 }
