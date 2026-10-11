@@ -706,7 +706,9 @@ async function processTextEvent(event) {
     console.error("Supabase write error:", error);
   }
 
-  if (!isArtInvoked(event)) return; // Remember group context, but do not interrupt normal chat.\n\n  let recentContext = "";
+  if (!isArtInvoked(event)) return; // Do not interrupt ordinary group conversation.
+
+  let recentContext = "";
   let memberContext = "";
   let longTermMemory = "";
   try {
