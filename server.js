@@ -1093,7 +1093,7 @@ async function maybeSaveLatestAttachment(text, scopeId, displayName) {
 }
 
 async function maybeReturnKnownFile(text, scopeId, displayName) {
-  if (!/(ส่ง.*ไฟล์|ไฟล์.*กลับ|ขอ.*ไฟล์|เอา.*ไฟล์|ดาวน์โหลด.*ไฟล์|ส่ง.*กลับ)/i.test(text || "")) return null;
+  if (!/(ส่ง.*ไฟล์|ไฟล์.*กลับ|ขอ.*ไฟล์|เอา.*ไฟล์|ดาวน์โหลด.*ไฟล์|ส่ง.*กลับ|ค้นหา.*ไฟล์|ลิงก์ดาวน์โหลด|ขอลิงก์)/i.test(text || "")) return null;
   const normalized = x => String(x||"").toLowerCase().replace(/\s+/g,"").replace(/[^a-z0-9\u0e00-\u0e7f.]/gi,"");
   const query = normalized(text);
   let rows = [];
