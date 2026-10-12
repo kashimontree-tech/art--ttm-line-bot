@@ -1090,39 +1090,37 @@ async function maybeSaveLatestAttachment(text, scopeId, displayName) {
 }
 
 async function maybeReturnKnownFile(text, scopeId, displayName) {
-  if (!/(ส่ง.*ไฟล์|ไฟล์.*กลับ|ขอ.*ไฟล์|เอา.*ไฟล์|ดาวน์โหลด.*ไฟล์)/i.test(text || "")) return null;
-
-  // Primary path: files received by this running bot. This does not depend on Supabase.
-  const live = createLiveDownload(scopeId, text);
-  if (live) {
-    return `${displayName || "พี่"}ครับ อาร์ตส่งไฟล์ “${live.item.fileName}” กลับมาให้แล้วครับ ✅\n\nดาวน์โหลดไฟล์:\n${live.url}\n\nลิงก์ใช้ได้ 1 ชั่วโมงครับ`;
-  }
-
-  // Persistent fallback: previously stored Supabase files.
+  if (!/(ส่ง.*ไฟล์|ไฟล์.*กลับ|ขอ.*ไฟล์|เอา.*ไฟล์|ดาวน์โหลด.*ไฟล์|ส่ง.*กลับ)/i.test(text || "")) return null;
+  const normalized = x => String(x||"").toLowerCase().replace(/\s+/g,"").replace(/[^a-z0-9\u0e00-\u0e7f.]/gi,"");
+  const query = normalized(text);
+  let rows = [];
   try {
-    const rows = (await supabaseRequest(
-      "line_memories?select=file_name,mime_type,storage_bucket,storage_path,metadata,created_at" +
-      `&scope_id=eq.${encodeURIComponent(scopeId)}&message_type=eq.file&order=created_at.desc&limit=50`,
-      { method: "GET" }
-    )) || [];
-    const normalizedText = String(text || "").toLowerCase().replace(/\s+/g, "");
-    const wanted = rows.find(r => {
-      if (!r.file_name) return false;
-      const full = r.file_name.toLowerCase().replace(/\s+/g, "");
-      const stem = full.replace(/\.[^.]+$/, "");
-      return normalizedText.includes(full) || normalizedText.includes(stem);
-    }) || rows[0];
-    if (!wanted) return `${displayName || "พี่"}ครับ ยังไม่พบไฟล์ต้นฉบับที่บันทึกไว้ในห้องนี้ กรุณาส่งไฟล์ต้นฉบับให้อาร์ตอีกครั้งหนึ่งครับ`;
-
-    if (wanted.storage_bucket && wanted.storage_path) {
-      const signedUrl = await createSupabaseSignedUrl(wanted.storage_bucket, wanted.storage_path, 3600);
-      return `${displayName || "พี่"}ครับ อาร์ตส่งไฟล์ “${wanted.file_name}” กลับมาให้แล้วครับ ✅\n\nดาวน์โหลดไฟล์:\n${signedUrl}\n\nลิงก์ใช้ได้ 1 ชั่วโมงครับ`;
-    }
-    return `${displayName || "พี่"}ครับ อาร์ตพบข้อมูลของไฟล์ “${wanted.file_name}” แต่ไม่มีต้นฉบับที่ดาวน์โหลดได้ กรุณาส่งต้นฉบับอีกครั้งหนึ่งครับ`;
-  } catch (error) {
-    console.error("Saved-file lookup error (non-blocking):", error);
-    return `${displayName || "พี่"}ครับ ตอนนี้คลังไฟล์ถาวรเชื่อมต่อไม่ได้ และยังไม่มีไฟล์ต้นฉบับในหน่วยความจำรอบนี้ กรุณาส่งไฟล์ต้นฉบับให้อาร์ตอีกครั้ง แล้วสั่งส่งกลับได้ทันทีครับ`;
+    // Always query permanent storage first. An expired one-hour link does NOT
+    // mean the source file has expired. Generate a fresh signed URL each time.
+    rows = await supabaseRequest("line_memories?select=file_name,mime_type,storage_bucket,storage_path,created_at" +
+      `&scope_id=eq.${encodeURIComponent(scopeId)}&message_type=eq.file&storage_path=not.is.null&order=created_at.desc&limit=500`,{method:"GET"});
+  } catch(error) { console.error("Permanent file lookup failed:",error); }
+  const stored = (rows||[]).filter(x=>x.storage_bucket&&x.storage_path);
+  const matches = stored.filter(x => {
+    const full = normalized(x.file_name),stem=full.replace(/\.[^.]+$/,"");
+    return Boolean(full&&query.includes(full) || stem&&stem.length>=5&&query.includes(stem));
+  });
+  // If caller explicitly specifies a filename, do not return an unrelated file.
+  const explicitName = /\.(xlsx?|pdf|docx?|png|jpe?g|zip)\b/i.test(text||"");
+  const chosen=matches[0] || (!explicitName ? stored[0] : null);
+  if(chosen) {
+    try {
+      const url=await createSupabaseSignedUrl(chosen.storage_bucket,chosen.storage_path,3600);
+      return `${displayName||"พี่"}ครับ พบต้นฉบับ “${chosen.file_name}” ในคลังถาวรแล้วครับ ✅\nลิงก์ดาวน์โหลดใหม่:\n${url}\n\nลิงก์นี้ใช้ได้ 1 ชั่วโมง แต่ต้นฉบับยังเก็บอยู่ เรียกใหม่เมื่อไรก็ได้ครับ`;
+    }catch(e){console.error("Signed file URL failed:",e);}
   }
+  const liveList=liveFileCache.get(String(scopeId||"unknown"))||[];
+  const live=liveList.find(x=>{const full=normalized(x.fileName),stem=full.replace(/\.[^.]+$/,"");return query.includes(full)||stem.length>=5&&query.includes(stem)})||(!explicitName?liveList[0]:null);
+  if(live) {
+    const dl=createLiveDownload(scopeId,live.fileName);
+    if(dl)return `${displayName||"พี่"}ครับ พบไฟล์ “${dl.item.fileName}” เฉพาะในหน่วยความจำชั่วคราว\n${dl.url}\nควรเก็บต้นฉบับลงคลังถาวรด้วยครับ`;
+  }
+  return `${displayName||"พี่"}ครับ ยังไม่พบต้นฉบับไฟล์ที่ขอในคลังของ LINE กลุ่มนี้ครับ หากเคยส่งในห้องอื่นต้องเรียกในห้องเดิม หรือส่งต้นฉบับเข้าห้องนี้เพื่อบันทึกครับ`;
 }
 
 function directIdentityReply(text, displayName) {
