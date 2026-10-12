@@ -307,45 +307,48 @@ async function processFileEvent(event, silent = false) {
   const rawName = await getLineDisplayName(source, userId);
   const displayName = honorificName(rawName) || "พี่";
   const fileName = event.message.fileName || "document";
+  let stored = null;
+  let indexed = false;
+  let summary = "";
+  let bytes, mime;
   try {
-    const { bytes, mime } = await downloadLineContent(event.message.id);
-    cacheLiveFile(scopeId, fileName, mime, bytes);
-    let stored = null;
-    try {
-      stored = await uploadSupabaseFile(bytes, scopeId, event.message.id, fileName, mime);
-    } catch (storageError) {
-      console.error("Permanent file storage error:", storageError);
-    }
-    const uploaded = await uploadOpenAIFile(bytes, fileName, mime);
+    ({bytes,mime} = await downloadLineContent(event.message.id));
+    cacheLiveFile(scopeId,fileName,mime,bytes);
+  } catch(error) {
+    console.error("LINE original file download failed:",error);
+    if (!silent) await replyMessage(event.replyToken, `${displayName}ครับ ดาวน์โหลดต้นฉบับ “${fileName}” จาก LINE ไม่สำเร็จ จึงยังไม่ได้บันทึกครับ`);
+    return;
+  }
+  try {
+    stored = await uploadSupabaseFile(bytes,scopeId,event.message.id,fileName,mime);
+    await saveFileMemory({scopeId,userId,displayName:rawName,source,fileName,lineMessageId:event.message.id,openaiFileId:null,mime,summary:"ต้นฉบับจาก LINE (รอวิเคราะห์)",storageBucket:stored.bucket,storagePath:stored.storagePath});
+    indexed = true;
+  } catch(error) {
+    console.error("LINE file permanent archive/index failed:",error);
+  }
+  try {
+    const uploaded = await uploadOpenAIFile(bytes,fileName,mime);
     const response = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${CLEAN_OPENAI_KEY}` },
-      body: JSON.stringify({
-        model: process.env.OPENAI_FILE_MODEL || "gpt-5.4",
-        instructions: "คุณคือ Art TTM อ่านไฟล์เอกสารจาก LINE เช่น PDF, Excel, Word และสรุปข้อมูลจริงจากไฟล์ ห้ามอ้างว่าอ่านหรือบันทึกสำเร็จถ้ายังไม่ได้ทำจริง",
-        input: [{ role: "user", content: [
-          { type: "input_file", file_id: uploaded.id },
-          { type: "input_text", text: `${displayName} ส่งไฟล์ชื่อ ${fileName} มา ให้อ่านไฟล์นี้และจำชื่อไฟล์ไว้ หากเป็น BOQ ให้สรุปว่าเป็นไฟล์อะไรและข้อมูลสำคัญที่อ่านได้` }
-        ]}],
-        max_output_tokens: 1500
+      method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${CLEAN_OPENAI_KEY}`},
+      body:JSON.stringify({
+        model:process.env.OPENAI_FILE_MODEL||"gpt-5.4",
+        instructions:"คุณคือ Art TTM อ่านไฟล์ตามข้อมูลจริง ไม่ยืนยันว่าเก็บไฟล์ถาวรหรือแปลงสำเร็จโดยไม่มีผลลัพธ์",
+        input:[{role:"user",content:[{type:"input_file",file_id:uploaded.id},{type:"input_text",text:`สรุปสาระสำคัญของไฟล์ ${fileName} โดยเฉพาะรายการ BOQ`}]}],
+        max_output_tokens:1500
       })
     });
-    if (!response.ok) throw new Error(`OpenAI file read error ${response.status}: ${await response.text()}`);
-    const data = await response.json();
-    const answer = extractOutputText(data) || `รับไฟล์ ${fileName} แล้วครับ`;
-    try {
-      await saveMessage({ lineMessageId: event.message.id || null, scopeId, userId, displayName: rawName, groupId: source.groupId || null, messageType: "file", text: `[ไฟล์: ${fileName}] ${answer}`, role: "user" });
-    } catch (e) { console.error("File chat log failed (non-blocking):", e); }
-    if (stored) {
-      try {
-        await saveFileMemory({ scopeId, userId, displayName: rawName, source, fileName, lineMessageId: event.message.id, openaiFileId: uploaded.id, mime, summary: answer, storageBucket: stored.bucket, storagePath: stored.storagePath });
-      } catch (e) { console.error("File metadata save failed (non-blocking):", e); }
-    }
-    if (!silent) await replyMessage(event.replyToken, `${displayName}ครับ อาร์ตอ่านไฟล์ “${fileName}” แล้วครับ${stored ? " และเก็บต้นฉบับลง Storage แล้ว" : " แต่ยังเก็บต้นฉบับถาวรไม่ได้ (คลังไฟล์มีปัญหา)"}\n${answer.slice(0, 3500)}`);
-  } catch (e) {
-    console.error("File processing error:", e);
-    if (!silent) await replyMessage(event.replyToken, `${displayName}ครับ อาร์ตรับไฟล์ “${fileName}” ไว้ชั่วคราวแล้ว แต่ขั้นตอนอ่านหรือบันทึกยังไม่สำเร็จครับ (${stored ? "เก็บต้นฉบับใน Storage แล้ว" : "Storage ยังเชื่อมต่อไม่ได้"})`);
-  }
+    if(!response.ok)throw Error(`OpenAI read ${response.status}: ${await response.text()}`);
+    summary=extractOutputText(await response.json())||"";
+  } catch(error){console.error("LINE file analysis failed (archive retained):",error);}
+  try {
+    await saveMessage({lineMessageId:event.message.id||null,scopeId,userId,displayName:rawName,groupId:source.groupId||null,messageType:"file",text:`[ไฟล์: ${fileName}] ${summary||"ยังไม่สรุปเนื้อหา"}`,role:"user"});
+  }catch(error){console.error("File message log failed:",error);}
+  if (silent) return;
+  const archiveStatus=indexed ? "เก็บต้นฉบับลงคลังถาวรและลงทะเบียนค้นหาแล้ว ✅" :
+    stored ? "เก็บต้นฉบับใน Storage แล้ว แต่ลงทะเบียนค้นหาไม่สำเร็จ ต้องตรวจสอบ" :
+    "ยังบันทึกถาวรไม่ได้ (ไฟล์อยู่ชั่วคราวเท่านั้น)";
+  const analysisStatus=summary ? "\n"+summary.slice(0,2600) : "\nยังอ่านรายละเอียดในไฟล์ไม่สำเร็จ แต่สถานะการเก็บไฟล์เป็นไปตามที่แจ้งข้างต้น";
+  await replyMessage(event.replyToken,`${displayName}ครับ รับไฟล์ “${fileName}” แล้ว — ${archiveStatus}${analysisStatus}`);
 }
 
 async function saveFileMemory({ scopeId, userId, displayName, source, fileName, lineMessageId, openaiFileId, mime, summary, storageBucket, storagePath }) {
