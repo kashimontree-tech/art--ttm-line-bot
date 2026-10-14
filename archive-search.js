@@ -18,13 +18,13 @@ async function searchArchive({text,scopeId,displayName,supabaseRequest,createSup
  try{files=await supabaseRequest(`line_memories?select=file_name,text_content,memory_text,display_name,mime_type,metadata,storage_bucket,storage_path,created_at&scope_id=eq.${enc}&order=created_at.desc&limit=500`,{method:"GET"})||[];}catch(e){errors.push("ไฟล์");console.error("Archive files search:",e);}
  try{messages=await supabaseRequest(`line_messages?select=message_text,content,display_name,role,created_at&scope_id=eq.${enc}&order=created_at.desc&limit=500`,{method:"GET"})||[];}catch(e){errors.push("ข้อความ");console.error("Archive messages search:",e);}
  const fileHits=files.filter(x=>matchSearch(x,terms));
- const norm=x=>String(x||"").replace(/\\s+/g,"").toLowerCase();
+ const norm=x=>String(x||"").replace(/\s+/g,"").toLowerCase();
  const input=norm(text);
  const msgHits=messages.filter(x=>{
    if(x.role==="assistant")return false;
    const body=String(x.message_text||x.content||"");
    if(norm(body)===input)return false;
-   if(/^(?:อาร์ต|art ttm)[,\\s]*(?:ค้นหา|ค้น|หาไฟล์)/i.test(body))return false;
+   if(/^(?:อาร์ต|art ttm)[,\s]*(?:ค้นหา|ค้น|หาไฟล์)/i.test(body))return false;
    return matchSearch(x,terms);
  });
  const lines=[`ค้นหา “${raw}” ใน LINE กลุ่มนี้`,`พบไฟล์/รูป ${fileHits.length} รายการ และข้อความ ${msgHits.length} รายการ (ค้นจาก 500 รายการล่าสุดต่อประเภท)`];
