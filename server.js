@@ -1112,7 +1112,12 @@ async function maybeReturnKnownFile(text, scopeId, displayName) {
   });
   // If caller explicitly specifies a filename, do not return an unrelated file.
   const explicitName = /\.(xlsx?|pdf|docx?|png|jpe?g|zip)\b/i.test(text||"");
-  const chosen=matches[0] || (!explicitName ? stored[0] : null);
+  // Never substitute the newest file for a request naming a project or filename.
+  const wantsLatest = /(?:ล่าสุด|ใหม่สุด|เพิ่งส่ง)/i.test(text||"") && !explicitName;
+  const projectWords = String(text||"").replace(/อาร์ต|ส่ง|ไฟล์|กลับมา|กลับ|ให้|หน่อย|ครับ|ค่ะ|ขอ|ดาวน์โหลด|ลิงก์|ค้นหา|ที่บันทึกไว้|จากคลัง|ใหม่/gi,"").trim();
+  const projectKey = normalized(projectWords);
+  const namedMatches = matches.length ? matches : (projectKey.length>=3 ? stored.filter(x=>normalized(x.file_name).includes(projectKey)) : []);
+  const chosen=namedMatches[0] || (wantsLatest ? stored[0] : null);
   if(chosen) {
     try {
       const url=await createSupabaseSignedUrl(chosen.storage_bucket,chosen.storage_path,3600);
@@ -1120,7 +1125,7 @@ async function maybeReturnKnownFile(text, scopeId, displayName) {
     }catch(e){console.error("Signed file URL failed:",e);}
   }
   const liveList=liveFileCache.get(String(scopeId||"unknown"))||[];
-  const live=liveList.find(x=>{const full=normalized(x.fileName),stem=full.replace(/\.[^.]+$/,"");return query.includes(full)||stem.length>=5&&query.includes(stem)})||(!explicitName?liveList[0]:null);
+  const live=liveList.find(x=>{const full=normalized(x.fileName),stem=full.replace(/\.[^.]+$/,"");return full&&query.includes(full)||stem.length>=5&&query.includes(stem)||projectKey.length>=3&&full.includes(projectKey)})||(wantsLatest?liveList[0]:null);
   if(live) {
     const dl=createLiveDownload(scopeId,live.fileName);
     if(dl)return `${displayName||"พี่"}ครับ พบไฟล์ “${dl.item.fileName}” เฉพาะในหน่วยความจำชั่วคราว\n${dl.url}\nควรเก็บต้นฉบับลงคลังถาวรด้วยครับ`;
