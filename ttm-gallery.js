@@ -18,7 +18,7 @@ async function showPhotos(){
   const img=document.createElement("img");img.alt="ภาพ "+f.name;img.loading="lazy";
   const detail=document.createElement("div");detail.className="small";detail.textContent=f.name+" | "+(f.group||"");
   const view=document.createElement("button");view.textContent="ดู / ดาวน์โหลด";view.onclick=async()=>{
-   try{const data=await api("/api/ttm-group/file/"+encodeURIComponent(f.id));window.open(data.url,"_blank","noopener")}catch(e){alert(e.message)}
+   try{const data=await fetch("/api/ttm-group/file/"+encodeURIComponent(f.id),{headers:{"x-admin-pin":pin,"x-archive-pin":archivePin,"x-photo-pin":archivePin}}).then(async r=>{const d=await r.json();if(!r.ok)throw Error(d.error||"Access denied");return d});window.open(data.url,"_blank","noopener")}catch(e){alert(e.message)}
   };
   box.append(img,detail,view);target.append(box);f._thumb=img;
  }
@@ -26,7 +26,7 @@ async function showPhotos(){
   if(current!==renderSeq)return;
   const batch=selected.slice(offset,offset+24);
   try{
-   const res=await fetch("/api/ttm-group/photo-links",{method:"POST",headers:{"Content-Type":"application/json","x-admin-pin":pin},body:JSON.stringify({ids:batch.map(x=>x.id)})});
+   const res=await fetch("/api/ttm-group/photo-links",{method:"POST",headers:{"Content-Type":"application/json","x-admin-pin":pin,"x-archive-pin":archivePin,"x-photo-pin":archivePin},body:JSON.stringify({ids:batch.map(x=>x.id)})});
    if(!res.ok)throw Error("Preview unavailable");
    const data=await res.json();
    if(current!==renderSeq)return;
