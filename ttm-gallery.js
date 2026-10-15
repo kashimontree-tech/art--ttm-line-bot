@@ -15,7 +15,7 @@ async function showFolders(){
   $("photoCount").textContent=folders.length+" โฟลเดอร์จาก LINE";
   for(const folder of folders){
    const b=document.createElement("button");b.textContent="📁 "+folder.name+" ("+folder.count+" รูป)";
-   b.onclick=()=>openFolder(folder,archivePin);$("photoFolders").append(b);
+   b.onclick=()=>{const code=window.prompt("กรอกรหัสผ่านเพื่อเปิดโฟลเดอร์ "+folder.name);if(code!==null&&code.trim())openFolder(folder,code.trim())};$("photoFolders").append(b);
   }
   $("photoMessage").textContent="เลือกโฟลเดอร์ที่ต้องการดูรูป";
  }catch(err){$("photoMessage").textContent=err.message}
@@ -29,9 +29,7 @@ async function openFolder(folder,pass){
   $("photoCount").textContent=folder.name+" • "+photos.length+" ภาพ";
   await renderPhotos();
  }catch(err){
-  const typed=window.prompt("กรอกรหัสของกลุ่ม "+folder.name);
-  if(typed!==null&&typed!==pass)await openFolder(folder,typed);
-  else $("photoMessage").textContent=err.message;
+  $("photoMessage").textContent=err.message;
  }
 }
 async function renderPhotos(){
