@@ -38,4 +38,21 @@ async function searchArchive({text,scopeId,displayName,supabaseRequest,createSup
  lines.push("หากต้องการค้นจากกลุ่มอื่น ให้ส่งคำสั่งในกลุ่มนั้นเพื่อรักษาความเป็นส่วนตัว");
  return lines.join("\n").slice(0,4800);
 }
-module.exports={isSearchRequest,searchArchive,extractSearchTerms};
+
+function isFileCatalogRequest(text) {
+ return /(?:รายการไฟล์|รายชื่อไฟล์|คลังไฟล์|ไฟล์ที่บันทึก|มีไฟล์อะไรบ้าง|สรุปไฟล์ในกลุ่ม)/i.test(String(text||"")) &&
+ !/(?:ส่งไฟล์|ส่ง.*กลับ|ดาวน์โหลด)/i.test(String(text||""));
+}
+async function listFileCatalog({scopeId,displayName,supabaseRequest}) {
+ const rows=await supabaseRequest("line_memories?select=file_name,mime_type,storage_bucket,storage_path,created_at&scope_id=eq."+
+    encodeURIComponent(scopeId)+"&order=created_at.desc&limit=500",{method:"GET"});
+ const files=(rows||[]).filter(x=>x.file_name&&x.storage_bucket&&x.storage_path);
+ const output=[(displayName||"พี่")+"ครับ คลังไฟล์ที่บันทึกไว้ของ LINE กลุ่มนี้", "พบ "+files.length+" รายการ (สูงสุด 500 รายการล่าสุด)"];
+ if (!files.length)output.push("ยังไม่มีต้นฉบับที่บันทึกสำเร็จในกลุ่มนี้");
+ for(let i=0;i<Math.min(files.length,25);i++)output.push((i+1)+". "+files[i].file_name);
+ if(files.length>25)output.push("มีเพิ่มเติมอีก "+(files.length-25)+" รายการ โปรดค้นด้วยชื่อไฟล์");
+ output.push("ขอไฟล์โดยระบุชื่อจริง เช่น อาร์ต ส่งไฟล์ TTM_Quotation_Seagull_FashionIsland_Latest.xlsx");
+ return output.join("\n").slice(0,4600);
+}
+
+module.exports={isSearchRequest,searchArchive,extractSearchTerms,isFileCatalogRequest,listFileCatalog};
