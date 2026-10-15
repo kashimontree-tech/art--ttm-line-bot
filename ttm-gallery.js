@@ -44,7 +44,7 @@ async function renderPhotos(){
   const im=document.createElement("img");im.loading="lazy";im.alt=item.name||"รูปภาพ LINE";
   const label=document.createElement("div");label.className="small";label.textContent=item.name||"ไม่ระบุชื่อ";
   const btn=document.createElement("button");btn.textContent="ดู / ดาวน์โหลด";
-  btn.onclick=async()=>{try{const r=await fetch("/api/ttm-group/file/"+encodeURIComponent(item.id),{headers:{"x-admin-pin":pin,"x-archive-pin":archivePin,"x-photo-pin":photoPin},cache:"no-store"});const d=await r.json();if(!r.ok)throw Error(d.error||"เปิดภาพไม่ได้");window.open(d.url,"_blank","noopener")}catch(err){alert(err.message)}};
+  btn.onclick=async()=>{const tab=window.open("about:blank","_blank");try{const r=await fetch("/api/ttm-group/file/"+encodeURIComponent(item.id),{headers:{"x-admin-pin":pin,"x-archive-pin":archivePin,"x-photo-pin":photoPin},cache:"no-store"});const d=await r.json();if(!r.ok)throw Error(d.error||"เปิดภาพไม่ได้");if(tab){tab.opener=null;tab.location.replace(d.url)}else{const a=document.createElement("a");a.href=d.url;a.target="_blank";a.rel="noopener";document.body.append(a);a.click();a.remove()}}catch(err){if(tab)tab.close();alert(err.message)}};
   box.append(im,label,btn);container.append(box);item._preview=im;
  }
  for(let start=0;start<items.length;start+=24){
