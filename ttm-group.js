@@ -1,9 +1,10 @@
 const crypto=require("crypto");
-module.exports=function(app,{supabaseRequest,createSupabaseSignedUrl}){
+module.exports=function(app,{supabaseRequest,createSupabaseSignedUrl,getThaiPdfFont,uploadSupabaseFile,saveFileMemory}){
  const secret=process.env.TTM_GROUP_ADMIN_PIN||process.env.TTM_ALBUM_ADMIN_PIN;
  function auth(req,res,next){if(!secret)return res.status(503).json({error:"Admin PIN not configured"});const a=Buffer.from(String(req.get("x-admin-pin")||""));const b=Buffer.from(secret);if(a.length!==b.length||!crypto.timingSafeEqual(a,b))return res.status(401).json({error:"Invalid PIN"});next()}
  app.get("/ttm-logo.webp",(req,res)=>res.type("image/webp").sendFile(require("path").join(__dirname,"ttm-logo.webp")));
  app.get("/ttm-group",(req,res)=>res.sendFile(require("path").join(__dirname,"ttm-group.html")));
  app.get("/api/ttm-group/files",auth,async(req,res)=>{try{const rows=await supabaseRequest("line_memories?select=id,file_name,mime_type,scope_id,created_at,storage_bucket,storage_path&storage_path=not.is.null&order=created_at.desc&limit=1000",{method:"GET"});res.set("Cache-Control","no-store").json({files:(rows||[]).filter(x=>x.file_name&&x.storage_bucket&&x.storage_path).map(x=>({id:x.id,name:x.file_name,type:x.mime_type,group:x.scope_id,date:x.created_at})),limited:(rows||[]).length===1000})}catch(e){res.status(500).json({error:"Archive unavailable"})}});
  app.get("/api/ttm-group/file/:id",auth,async(req,res)=>{try{if(!/^[a-f0-9-]{36}$/i.test(req.params.id))return res.sendStatus(400);const rows=await supabaseRequest("line_memories?select=file_name,storage_bucket,storage_path&id=eq."+encodeURIComponent(req.params.id)+"&limit=1",{method:"GET"});const f=rows?.[0];if(!f?.storage_bucket||!f?.storage_path)return res.sendStatus(404);const url=await createSupabaseSignedUrl(f.storage_bucket,f.storage_path,3600);res.set("Cache-Control","no-store").json({url,name:f.file_name})}catch(e){res.status(500).json({error:"Download unavailable"})}});
+ require("./ttm-convert")(app,{auth,getThaiPdfFont,uploadSupabaseFile,saveFileMemory,createSupabaseSignedUrl});
 };
