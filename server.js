@@ -1096,42 +1096,47 @@ async function maybeSaveLatestAttachment(text, scopeId, displayName) {
 }
 
 async function maybeReturnKnownFile(text, scopeId, displayName) {
-  if (!/(ส่ง.*ไฟล์|ไฟล์.*กลับ|ขอ.*ไฟล์|เอา.*ไฟล์|ดาวน์โหลด.*ไฟล์|ส่ง.*กลับ|ค้นหา.*ไฟล์|ลิงก์ดาวน์โหลด|ขอลิงก์)/i.test(text || "")) return null;
-  const normalized = x => String(x||"").toLowerCase().replace(/\s+/g,"").replace(/[^a-z0-9\u0e00-\u0e7f.]/gi,"");
-  const query = normalized(text);
-  let rows = [];
-  try {
-    // Always query permanent storage first. An expired one-hour link does NOT
-    // mean the source file has expired. Generate a fresh signed URL each time.
-    rows = await supabaseRequest("line_memories?select=file_name,mime_type,storage_bucket,storage_path,created_at" +
-      `&scope_id=eq.${encodeURIComponent(scopeId)}&message_type=eq.file&storage_path=not.is.null&order=created_at.desc&limit=500`,{method:"GET"});
-  } catch(error) { console.error("Permanent file lookup failed:",error); }
-  const stored = (rows||[]).filter(x=>x.storage_bucket&&x.storage_path);
-  const matches = stored.filter(x => {
-    const full = normalized(x.file_name),stem=full.replace(/\.[^.]+$/,"");
-    return Boolean(full&&query.includes(full) || stem&&stem.length>=5&&query.includes(stem));
-  });
-  // If caller explicitly specifies a filename, do not return an unrelated file.
-  const explicitName = /\.(xlsx?|pdf|docx?|png|jpe?g|zip)\b/i.test(text||"");
-  // Never substitute the newest file for a request naming a project or filename.
-  const wantsLatest = /(?:ล่าสุด|ใหม่สุด|เพิ่งส่ง)/i.test(text||"") && !explicitName;
-  const projectWords = String(text||"").replace(/อาร์ต|ส่ง|ไฟล์|กลับมา|กลับ|ให้|หน่อย|ครับ|ค่ะ|ขอ|ดาวน์โหลด|ลิงก์|ค้นหา|ที่บันทึกไว้|จากคลัง|ใหม่/gi,"").trim();
-  const projectKey = normalized(projectWords);
-  const namedMatches = matches.length ? matches : (projectKey.length>=3 ? stored.filter(x=>normalized(x.file_name).includes(projectKey)) : []);
-  const chosen=namedMatches[0] || (wantsLatest ? stored[0] : null);
-  if(chosen) {
-    try {
-      const url=await createSupabaseSignedUrl(chosen.storage_bucket,chosen.storage_path,3600);
-      return `${displayName||"พี่"}ครับ พบต้นฉบับ “${chosen.file_name}” ในคลังถาวรแล้วครับ ✅\nลิงก์ดาวน์โหลดใหม่:\n${url}\n\nลิงก์นี้ใช้ได้ 1 ชั่วโมง แต่ต้นฉบับยังเก็บอยู่ เรียกใหม่เมื่อไรก็ได้ครับ`;
-    }catch(e){console.error("Signed file URL failed:",e);}
+  if (!/(?:ส่ง.*ไฟล์|ไฟล์.*กลับ|ขอ.*ไฟล์|เอา.*ไฟล์|ดาวน์โหลด.*ไฟล์|ส่ง.*กลับ|ค้นหา.*ไฟล์|ลิงก์ดาวน์โหลด|ขอลิงก์)/i.test(text||"")) return null;
+  const norm=x=>String(x||"").normalize("NFC").toLowerCase().replace(/\s+/g,"").replace(/[^a-z0-9\u0e00-\u0e7f.]/gi,"");
+  const rows=await supabaseRequest("line_memories?select=file_name,mime_type,storage_bucket,storage_path,created_at"+
+    `&scope_id=eq.${encodeURIComponent(scopeId)}&storage_path=not.is.null&order=created_at.desc&limit=500`,{method:"GET"});
+  const files=(rows||[]).filter(x=>x.file_name&&x.storage_bucket&&x.storage_path);
+  const all=/(?:ไฟล์ทั้งหมด|ทุกไฟล์|ไฟล์ทุกไฟล์|ส่งไฟล์ที่บันทึกทั้งหมด)/i.test(text||"");
+  const latest=/(?:ล่าสุด|ใหม่สุด|เพิ่งส่ง)/i.test(text||"");
+  if(all) {
+    if(!files.length)return `${displayName||"พี่"}ครับ ยังไม่มีต้นฉบับที่เก็บถาวรในกลุ่มนี้ครับ`;
+    const page=Math.max(1,Number((text.match(/(?:หน้า|page)\s*(\d+)/i)||[])[1]||1));
+    const pageSize=5, pages=Math.ceil(files.length/pageSize);
+    if(page>pages)return `${displayName||"พี่"}ครับ มีทั้งหมด ${pages} หน้า กรุณาเลือกหมายเลขหน้าไม่เกิน ${pages} ครับ`;
+    const selected=files.slice((page-1)*pageSize,page*pageSize);
+    const lines=[`${displayName||"พี่"}ครับ รายการดาวน์โหลดไฟล์ในกลุ่มนี้ หน้า ${page}/${pages} (ทั้งหมด ${files.length} รายการ)`];
+    for(const f of selected) {
+      try {
+        lines.push(`📎 ${f.file_name}\n${await createSupabaseSignedUrl(f.storage_bucket,f.storage_path,3600)}`);
+      }catch(err){console.error("Archive link:",err);lines.push(`📎 ${f.file_name} (ออกลิงก์ไม่สำเร็จ)`)}
+    }
+    if(page<pages)lines.push(`พิมพ์ “อาร์ต ส่งไฟล์ทั้งหมด หน้า ${page+1}” เพื่อดูต่อ`);
+    lines.push("ลิงก์มีอายุ 1 ชั่วโมง แต่ต้นฉบับยังเก็บอยู่ใน Supabase");
+    return lines.join("\n").slice(0,4800);
   }
-  const liveList=liveFileCache.get(String(scopeId||"unknown"))||[];
-  const live=liveList.find(x=>{const full=normalized(x.fileName),stem=full.replace(/\.[^.]+$/,"");return full&&query.includes(full)||stem.length>=5&&query.includes(stem)||projectKey.length>=3&&full.includes(projectKey)})||(wantsLatest?liveList[0]:null);
-  if(live) {
-    const dl=createLiveDownload(scopeId,live.fileName);
-    if(dl)return `${displayName||"พี่"}ครับ พบไฟล์ “${dl.item.fileName}” เฉพาะในหน่วยความจำชั่วคราว\n${dl.url}\nควรเก็บต้นฉบับลงคลังถาวรด้วยครับ`;
+  const exact=String(text||"").match(/([^\s“”"'<>]+\.(?:xlsx|xls|pdf|docx|doc|zip|png|jpg|jpeg))/i)?.[1];
+  const exactNorm=norm(exact);
+  let matches=exactNorm?files.filter(f=>norm(f.file_name)===exactNorm):[];
+  if(!matches.length&&!exact) {
+    const keywords=String(text||"").replace(/(?:อาร์ต|ช่วย|ส่ง|ไฟล์|ที่บันทึกไว้|ในกลุ่ม|กลับมา|กลับ|ให้|หน่อย|ครับ|ค่ะ|ขอ|ดาวน์โหลด|ลิงก์|ค้นหา|จากคลัง|ใหม่|ทั้งหมด|ทุกไฟล์|ล่าสุด)/g," ").trim();
+    const key=norm(keywords);
+    if(key.length>=3)matches=files.filter(f=>norm(f.file_name).includes(key));
   }
-  return `${displayName||"พี่"}ครับ ยังไม่พบต้นฉบับไฟล์ที่ขอในคลังของ LINE กลุ่มนี้ครับ หากเคยส่งในห้องอื่นต้องเรียกในห้องเดิม หรือส่งต้นฉบับเข้าห้องนี้เพื่อบันทึกครับ`;
+  if(!matches.length&&latest&&!exact)matches=files.slice(0,1);
+  if(!matches.length)return `${displayName||"พี่"}ครับ ไม่พบต้นฉบับตามชื่อที่ระบุในกลุ่มนี้ จะไม่ส่งไฟล์อื่นแทนครับ ลองพิมพ์ “อาร์ต รายการไฟล์ที่บันทึกไว้” เพื่อตรวจชื่อที่มีจริง`;
+  if(matches.length>1&&!exact&&!latest) {
+    return `${displayName||"พี่"}ครับ พบ ${matches.length} ไฟล์ที่ตรงคำค้น:\n${matches.slice(0,10).map((f,i)=>`${i+1}. ${f.file_name}`).join("\n")}\nกรุณาระบุชื่อไฟล์เต็มเพื่อส่งต้นฉบับที่ถูกต้องครับ`;
+  }
+  const chosen=matches[0];
+  try{
+    const link=await createSupabaseSignedUrl(chosen.storage_bucket,chosen.storage_path,3600);
+    return `${displayName||"พี่"}ครับ พบไฟล์ต้นฉบับชื่อ “${chosen.file_name}” ในคลังถาวร ✅\n${link}\nลิงก์มีอายุ 1 ชั่วโมง ขอใหม่ได้ตลอดหากต้นฉบับยังอยู่ครับ`;
+  }catch(err){console.error("File retrieval:",err);return `${displayName||"พี่"}ครับ พบไฟล์ “${chosen.file_name}” แต่สร้างลิงก์ไม่สำเร็จ กรุณาลองใหม่ครับ`}
 }
 
 function directIdentityReply(text, displayName) {
