@@ -14,6 +14,7 @@ module.exports=function(app,{supabaseRequest,createSupabaseSignedUrl,getThaiPdfF
  app.get("/api/ttm-group/session",auth,(req,res)=>res.set("Cache-Control","no-store").json({ok:true}));
  app.get("/ttm-logo.webp",(req,res)=>res.type("image/webp").sendFile(require("path").join(__dirname,"ttm-logo.webp")));
  app.get("/ttm-convert-ui.js",(req,res)=>res.type("application/javascript").sendFile(require("path").join(__dirname,"ttm-convert-ui.js")));
+ app.get("/ttm-files-ui.js",(req,res)=>res.type("application/javascript").sendFile(require("path").join(__dirname,"ttm-files-ui.js")));
  app.get("/ttm-gallery.js",(req,res)=>res.type("application/javascript").sendFile(require("path").join(__dirname,"ttm-gallery.js")));
  app.get("/ttm-group",(req,res)=>res.sendFile(require("path").join(__dirname,"ttm-group.html")));
  app.get("/api/ttm-group/file-folders",auth,async(req,res)=>{try{const rows=await supabaseRequest("line_memories?select=scope_id,mime_type,storage_path&storage_path=not.is.null&order=created_at.desc&limit=1000",{method:"GET"});const counts=new Map();for(const f of rows||[])if(!/^image\\//i.test(f.mime_type||""))counts.set(f.scope_id,(counts.get(f.scope_id)||0)+1);const folders=[];for(const [scope,count] of counts)folders.push({scope,name:await groupName(scope),count});res.set("Cache-Control","no-store").json({folders,limited:(rows||[]).length===1000})}catch(e){res.status(500).json({error:"Cannot list file folders"})}});
