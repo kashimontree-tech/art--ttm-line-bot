@@ -731,6 +731,7 @@ async function processTextEvent(event) {
     answer = directIdentityReply(userText, displayName) ||
       (require("./archive-search").isFileCatalogRequest(userText) ? await require("./archive-search").listFileCatalog({scopeId,displayName,supabaseRequest}) : null) ||
       (require("./material-research").isMaterialResearch(userText) ? await require("./material-research").researchMaterials(userText,{key:CLEAN_OPENAI_KEY,model:OPENAI_MODEL,displayName}) : null) ||
+      await maybeReturnKnownFile(userText, scopeId, displayName, event.source?.userId) ||
       (require("./archive-search").isSearchRequest(userText) ? await require("./archive-search").searchArchive({text:userText,scopeId,displayName,supabaseRequest,createSupabaseSignedUrl}) : null) ||
       (/(อัปเดต|อัพเดท|เพิ่ม|แนบเพิ่ม)/i.test(userText) && /(รูป|สลิป|อัลบั้ม|ไฟล์)/i.test(userText) ? await addLatestSlipToAlbum(scopeId,displayName,userText) : null) ||
       (/(สลิป|slip|อัลบั้ม|album|เจมาร์ท|j.?mart)/i.test(userText) && /(อัลบั้ม|album|excel|เอ็กเซล|ยอดเงิน|จำนวนเงิน|สรุปยอด)/i.test(userText) ? await makeDetailedSlipAlbum(scopeId,displayName,userText) : null) ||
@@ -738,7 +739,6 @@ async function processTextEvent(event) {
       (wantsPdfConversion(userText) ? await convertLatestExcelToPdf(scopeId, displayName) : null) ||
       (wantsExcelConversion(userText) ? await convertLatestAttachmentToExcel(scopeId, displayName) : null) ||
       await maybeSaveLatestAttachment(userText, scopeId, displayName) ||
-      await maybeReturnKnownFile(userText, scopeId, displayName, event.source?.userId) ||
       await askOpenAI(userText, recentContext, memberContext, longTermMemory, displayName, mentionedMembers);
   } catch (error) {
     console.error("OpenAI processing error:", error);
