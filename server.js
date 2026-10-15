@@ -206,11 +206,12 @@ app.post("/webhook", express.raw({ type: "application/json" }), async (req, res)
           }
         }
       }
-      if (event.type === "message" && event.replyToken) {
+      if (event.type === "message" && event.message?.id) {
         const silentGroupAttachment = isGroupConversation(source);
         if (event.message?.type === "text") await processTextEvent(event);
         else if (event.message?.type === "image") await processImageEvent(event, silentGroupAttachment);
         else if (event.message?.type === "file") await processFileEvent(event, silentGroupAttachment);
+        else if (["video","audio"].includes(event.message?.type)) await archiveMediaEvent(event);
       }
     }
   } catch (error) {
@@ -298,6 +299,20 @@ function isArtInvoked(event) {
     m.type === "user" && Boolean(botUserId) && m.userId === botUserId
   );
   return taggedBot || hasArtName;
+}
+
+async function archiveMediaEvent(event) {
+  const source=event.source||{},scopeId=getScopeId(source),userId=source.userId||null;
+  const type=event.message.type;
+  const ext=type==="video"?"mp4":"m4a";
+  const mime=type==="video"?"video/mp4":"audio/mp4";
+  const filename=type==="video"?"LINE_video_":"LINE_audio_";
+  const fileName=filename+event.message.id+"."+ext;
+  try {
+    const media=await downloadLineContent(event.message.id);
+    const saved=await uploadSupabaseFile(media.bytes,scopeId,event.message.id,fileName,media.mime||mime);
+    await saveFileMemory({scopeId,userId,displayName:null,source,fileName,lineMessageId:event.message.id,openaiFileId:null,mime:media.mime||mime,summary:"ต้นฉบับจาก LINE "+type,storageBucket:saved.bucket,storagePath:saved.storagePath});
+  } catch(error){console.error("Permanent "+type+" archive failed:",{messageId:event.message.id,error:String(error)});}
 }
 
 async function processFileEvent(event, silent = false) {
