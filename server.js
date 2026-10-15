@@ -552,9 +552,16 @@ async function convertLatestAttachmentToExcel(scopeId, displayName) {
   const stem = String(source.fileName || "converted").replace(/\.[^.]+$/, "");
   const outName = `${stem}.xlsx`;
   cacheLiveFile(scopeId, outName, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", xlsxBytes);
-  const dl = createLiveDownload(scopeId, outName);
-
-  return `${displayName || "พี่"}ครับ แปลงเป็น Excel จริงให้แล้วครับ ✅\n\nไฟล์: ${outName}\nมี 2 ชีต: “สรุปเอกสาร” และ “รายการ”\nดาวน์โหลด:\n${dl.url}\n\nลิงก์ใช้ได้ 1 ชั่วโมงครับ`;
+  let downloadUrl=null, persistent=false;
+  try {
+    const saved=await uploadSupabaseFile(xlsxBytes,scopeId,"generated-excel",outName,"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    await saveFileMemory({scopeId,userId:null,displayName:"Art TTM",source:{type:"bot"},fileName:outName,lineMessageId:null,openaiFileId:null,mime:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",summary:"AI-extracted Excel from "+source.fileName+"; unverified extraction",storageBucket:saved.bucket,storagePath:saved.storagePath});
+    downloadUrl=await createSupabaseSignedUrl(saved.bucket,saved.storagePath,3600);
+    persistent=true;
+  } catch(e) {console.error("Excel permanent archive failed:",e);}
+  if(!downloadUrl)downloadUrl=createLiveDownload(scopeId,outName)?.url;
+  if(!downloadUrl)throw new Error("Unable to create Excel download URL");
+  return `${displayName||"พี่"}ครับ สร้าง Excel ชื่อ ${outName} จากต้นฉบับ ${source.fileName} แล้วครับ\nข้อมูลถูกถอดด้วย AI จึงยังไม่รับรองว่ารายการและยอดทั้งหมดครบตรงต้นฉบับ โปรดตรวจทานก่อนใช้งานจริง\nสถานะเก็บถาวร: ${persistent?"บันทึกแล้ว":"ยังไม่สำเร็จ"}\nดาวน์โหลด:\n${downloadUrl}`;
 }
 
 let cachedThaiFont = null;
@@ -637,14 +644,15 @@ async function convertLatestExcelToPdf(scopeId, displayName) {
             const texts = Array.from({ length: renderCols }, (_, i) => String(vals[colStart + i] ?? ""));
             doc.font("Thai").fontSize(7);
             const heights = texts.map(t => doc.heightOfString(t || " ", { width: colWidth - 8, lineGap: 1 }));
-            const rowH = Math.max(20, Math.min(96, Math.max(...heights) + 8));
+            const rowH = Math.max(20, Math.max(...heights) + 8);
+            if(rowH > doc.page.height - 100) throw new Error("CELL_TOO_TALL_FOR_PDF: please export with a full spreadsheet renderer");
             if (doc.y + rowH > doc.page.height - doc.page.margins.bottom) addTablePage(true);
             const y = doc.y;
             let x = doc.page.margins.left;
             for (let i = 0; i < renderCols; i++) {
               doc.rect(x, y, colWidth, rowH).stroke();
               doc.font("Thai").fontSize(7).text(texts[i], x + 4, y + 4, {
-                width: colWidth - 8, height: rowH - 8, ellipsis: true, lineGap: 1
+                width: colWidth - 8, height: rowH - 8, lineGap: 1
               });
               x += colWidth;
             }
@@ -686,7 +694,7 @@ async function convertLatestExcelToPdf(scopeId, displayName) {
     downloadUrl = dl?.url || null;
   }
   if (!downloadUrl) throw new Error("Unable to create PDF download URL");
-  return `${displayName || "พี่"}ครับ แปลง Excel เป็น PDF ให้แล้วครับ ✅\n\nไฟล์: ${outName}\nดาวน์โหลด:\n${downloadUrl}\n\nลิงก์ใช้ได้ 1 ชั่วโมงครับ`;
+  return `${displayName || "พี่"}ครับ สร้าง PDF จาก Excel แล้ว แต่รูปแบบการจัดหน้าอาจต่างจากต้นฉบับ กรุณาตรวจทุกชีตก่อนใช้งานครับ\n\nไฟล์: ${outName}\nดาวน์โหลด:\n${downloadUrl}\n\nลิงก์ใช้ได้ 1 ชั่วโมงครับ`;
 
 }
 
