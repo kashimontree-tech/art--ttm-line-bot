@@ -756,6 +756,7 @@ async function processTextEvent(event) {
       ? (event.source?.userId
          ? `${displayName||"พี่"}ครับ LINE User ID ของบัญชีที่ส่งข้อความนี้คือ\n${event.source.userId}\nรหัสนี้ไม่ใช่ Channel Access Token โปรดส่งให้เฉพาะผู้ดูแลระบบเพื่อใช้กำหนดสิทธิ์ครับ`
          : "ข้อความนี้ไม่มี LINE User ID จาก LINE กรุณาส่งคำสั่งผ่านแชตกับบอทหรือกลุ่มที่บอทมีสิทธิ์อ่านข้อมูลสมาชิกครับ") : null) ||
+      (/(?:ทดสอบ\s*TTM\s*Group|รายงานปัญหา\s*TTM\s*Group|ข้อเสนอแนะ\s*TTM\s*Group)/i.test(userText) ? `${displayName||"พี่"}ครับ อาร์ตบันทึกผลทดสอบ TTM Group จาก LINE กลุ่มนี้ไว้แล้วครับ ขอบคุณสำหรับข้อมูลครับ` : null) ||
       directIdentityReply(userText, displayName) ||
       (require("./archive-search").isFileCatalogRequest(userText) ? await require("./archive-search").listFileCatalog({scopeId,displayName,supabaseRequest}) : null) ||
       (require("./material-research").isMaterialResearch(userText) ? await require("./material-research").researchMaterials(userText,{key:CLEAN_OPENAI_KEY,model:OPENAI_MODEL,displayName}) : null) ||
