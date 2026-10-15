@@ -1,12 +1,17 @@
 (function(){
-const get=x=>document.getElementById(x);let renderSeq=0;
+const get=x=>document.getElementById(x);let renderSeq=0,activeGroup=null;
 async function showPhotos(){
  const target=get("photoGallery");if(!target)return;
  const q=(get("photoSearch").value||"").toLocaleLowerCase();
- const selected=files.filter(f=>/^image\//i.test(f.type||"")||/\.(jpe?g|png|webp|gif)$/i.test(f.name||"")).filter(f=>(f.name+" "+f.group).toLocaleLowerCase().includes(q));
- get("photoCount").textContent=selected.length+" ภาพที่บันทึกไว้ (จากรายการที่โหลด)";
+ const all=files.filter(f=>/^image\//i.test(f.type||"")||/\.(jpe?g|png|webp|gif)$/i.test(f.name||""));
+ const folders=get("photoFolders");folders.replaceChildren();
+ const groups=[...new Set(all.map(f=>f.group||"ไม่ระบุกลุ่ม"))].sort();
+ const back=document.createElement("button");back.textContent="📁 ทุกกลุ่ม";back.onclick=()=>{activeGroup=null;showPhotos()};folders.append(back);
+ for(const group of groups){const b=document.createElement("button");const count=all.filter(f=>(f.group||"ไม่ระบุกลุ่ม")===group).length;b.textContent="📂 "+group+" ("+count+")";b.style.background=activeGroup===group?"#126148":"#e4eee8";b.style.color=activeGroup===group?"white":"#14563f";b.onclick=()=>{activeGroup=group;showPhotos()};folders.append(b)}
+ const selected=all.filter(f=>activeGroup===null?false:(f.group||"ไม่ระบุกลุ่ม")===activeGroup).filter(f=>(f.name+" "+f.group).toLocaleLowerCase().includes(q));
+ get("photoCount").textContent=activeGroup===null?"เลือกโฟลเดอร์ LINE กลุ่มที่ต้องการ ("+groups.length+" กลุ่ม · "+all.length+" ภาพ)":activeGroup+" — "+selected.length+" ภาพ";
  const current=++renderSeq;target.replaceChildren();
- if(!selected.length){get("photoMessage").textContent="ไม่พบภาพตามคำค้น";return}
+ if(!selected.length){get("photoMessage").textContent=activeGroup===null?"เลือกโฟลเดอร์กลุ่มเพื่อดูภาพ":"ไม่พบภาพตามคำค้น";return}
  get("photoMessage").textContent="กำลังเตรียมภาพตัวอย่าง...";
  for(const f of selected){
   const box=document.createElement("div");box.className="photo";
