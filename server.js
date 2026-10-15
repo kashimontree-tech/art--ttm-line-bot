@@ -728,7 +728,11 @@ async function processTextEvent(event) {
 
   let answer;
   try {
-    answer = directIdentityReply(userText, displayName) ||
+    answer = (/(?:แสดง|ดู|ขอ|เช็ค|ตรวจ|บอก)\s*(?:LINE\s*)?(?:User\s*ID|ยูสเซอร์ไอดี)(?:\s*(?:ของฉัน|ของผม|ของพี่|ฉัน|ผม|พี่))?|(?:LINE\s*)?User\s*ID\s*(?:ของฉัน|ของผม|ของพี่)/i.test(userText)
+      ? (event.source?.userId
+         ? `${displayName||"พี่"}ครับ LINE User ID ของบัญชีที่ส่งข้อความนี้คือ\n${event.source.userId}\nรหัสนี้ไม่ใช่ Channel Access Token โปรดส่งให้เฉพาะผู้ดูแลระบบเพื่อใช้กำหนดสิทธิ์ครับ`
+         : "ข้อความนี้ไม่มี LINE User ID จาก LINE กรุณาส่งคำสั่งผ่านแชตกับบอทหรือกลุ่มที่บอทมีสิทธิ์อ่านข้อมูลสมาชิกครับ") : null) ||
+      directIdentityReply(userText, displayName) ||
       (require("./archive-search").isFileCatalogRequest(userText) ? await require("./archive-search").listFileCatalog({scopeId,displayName,supabaseRequest}) : null) ||
       (require("./material-research").isMaterialResearch(userText) ? await require("./material-research").researchMaterials(userText,{key:CLEAN_OPENAI_KEY,model:OPENAI_MODEL,displayName}) : null) ||
       await maybeReturnKnownFile(userText, scopeId, displayName, event.source?.userId) ||
