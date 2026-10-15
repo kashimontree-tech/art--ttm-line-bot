@@ -738,7 +738,7 @@ async function processTextEvent(event) {
       (wantsPdfConversion(userText) ? await convertLatestExcelToPdf(scopeId, displayName) : null) ||
       (wantsExcelConversion(userText) ? await convertLatestAttachmentToExcel(scopeId, displayName) : null) ||
       await maybeSaveLatestAttachment(userText, scopeId, displayName) ||
-      await maybeReturnKnownFile(userText, scopeId, displayName) ||
+      await maybeReturnKnownFile(userText, scopeId, displayName, event.source?.userId) ||
       await askOpenAI(userText, recentContext, memberContext, longTermMemory, displayName, mentionedMembers);
   } catch (error) {
     console.error("OpenAI processing error:", error);
@@ -1095,12 +1095,28 @@ async function maybeSaveLatestAttachment(text, scopeId, displayName) {
   return `${displayName || "พี่"}ครับ อาร์ตบันทึกไฟล์ล่าสุด “${item.fileName}” ไว้แล้วครับ ✅ ถ้าต้องการรับกลับ พิมพ์ “อาร์ตส่งไฟล์ที่บันทึกกลับมา” ได้เลยครับ`;
 }
 
-async function maybeReturnKnownFile(text, scopeId, displayName) {
+async function maybeReturnKnownFile(text, scopeId, displayName, requestUserId) {
   if (!/(?:ส่ง.*ไฟล์|ไฟล์.*กลับ|ขอ.*ไฟล์|เอา.*ไฟล์|ดาวน์โหลด.*ไฟล์|ส่ง.*กลับ|ค้นหา.*ไฟล์|ลิงก์ดาวน์โหลด|ขอลิงก์)/i.test(text||"")) return null;
   const norm=x=>String(x||"").normalize("NFC").toLowerCase().replace(/\s+/g,"").replace(/[^a-z0-9\u0e00-\u0e7f.]/gi,"");
   const rows=await supabaseRequest("line_memories?select=file_name,mime_type,storage_bucket,storage_path,created_at"+
     `&scope_id=eq.${encodeURIComponent(scopeId)}&storage_path=not.is.null&order=created_at.desc&limit=500`,{method:"GET"});
   const files=(rows||[]).filter(x=>x.file_name&&x.storage_bucket&&x.storage_path);
+  const approved=String(process.env.TTM_FILE_ADMIN_USER_IDS||"").split(",").map(x=>x.trim()).filter(Boolean);
+  const isAdmin=Boolean(requestUserId&&approved.includes(requestUserId));
+  const crossGroupRequested=/(?:ทุกกลุ่ม|ข้ามกลุ่ม|คลังกลาง)/i.test(text||"");
+  if(crossGroupRequested && !isAdmin) {
+    return (displayName||"พี่")+"ครับ การค้นไฟล์ข้าม LINE กลุ่มทำได้เฉพาะผู้ดูแลที่ยืนยันสิทธิ์แล้วครับ";
+  }
+  if(isAdmin && crossGroupRequested) {
+    const allRows=await supabaseRequest("line_memories?select=file_name,mime_type,storage_bucket,storage_path,created_at,scope_id"+
+      "&storage_path=not.is.null&order=created_at.desc&limit=1000",{method:"GET"});
+    const seen=new Set();files.length=0;
+    for(const file of allRows||[]) {
+      if(!file.file_name||!file.storage_bucket||!file.storage_path)continue;
+      const id=file.storage_bucket+"/"+file.storage_path;
+      if(!seen.has(id)){files.push(file);seen.add(id)}
+    }
+  }
   const all=/(?:ไฟล์ทั้งหมด|ทุกไฟล์|ไฟล์ทุกไฟล์|ส่งไฟล์ที่บันทึกทั้งหมด)/i.test(text||"");
   const latest=/(?:ล่าสุด|ใหม่สุด|เพิ่งส่ง)/i.test(text||"");
   if(all) {
