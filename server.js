@@ -729,6 +729,7 @@ async function processTextEvent(event) {
   let answer;
   try {
     answer = directIdentityReply(userText, displayName) ||
+      (require("./archive-search").isFileCatalogRequest(userText) ? await require("./archive-search").listFileCatalog({scopeId,displayName,supabaseRequest}) : null) ||
       (require("./material-research").isMaterialResearch(userText) ? await require("./material-research").researchMaterials(userText,{key:CLEAN_OPENAI_KEY,model:OPENAI_MODEL,displayName}) : null) ||
       (require("./archive-search").isSearchRequest(userText) ? await require("./archive-search").searchArchive({text:userText,scopeId,displayName,supabaseRequest,createSupabaseSignedUrl}) : null) ||
       (/(อัปเดต|อัพเดท|เพิ่ม|แนบเพิ่ม)/i.test(userText) && /(รูป|สลิป|อัลบั้ม|ไฟล์)/i.test(userText) ? await addLatestSlipToAlbum(scopeId,displayName,userText) : null) ||
