@@ -178,7 +178,7 @@ app.post("/webhook", express.raw({ type: "application/json" }), async (req, res)
     // Audit each attachment before acknowledging LINE; if the audit store is
     // unavailable, return a retryable error rather than losing the event silently.
     for(const event of body.events||[]){
-      if(event.type==="message"&&event.message?.id&&["image","file"].includes(event.message.type)){
+      if(event.type==="message"&&event.message?.id&&["image","file","audio","video"].includes(event.message.type)){
         const payload=[{line_message_id:String(event.message.id),scope_id:getScopeId(event.source||{}),media_type:event.message.type,status:"received"}];
         await supabaseRequest("ttm_attachment_receipts?on_conflict=line_message_id",{
           method:"POST",prefer:"resolution=ignore-duplicates,return=minimal",body:JSON.stringify(payload)
@@ -353,11 +353,17 @@ async function archiveMediaEvent(event) {
   const mime=type==="video"?"video/mp4":"audio/mp4";
   const filename=type==="video"?"LINE_video_":"LINE_audio_";
   const fileName=filename+event.message.id+"."+ext;
+  let saved=null;
   try {
     const media=await downloadLineContent(event.message.id);
-    const saved=await uploadSupabaseFile(media.bytes,scopeId,event.message.id,fileName,media.mime||mime);
+    saved=await uploadSupabaseFile(media.bytes,scopeId,event.message.id,fileName,media.mime||mime);
     await saveFileMemory({scopeId,userId,displayName:null,source,fileName,lineMessageId:event.message.id,openaiFileId:null,mime:media.mime||mime,summary:"ต้นฉบับจาก LINE "+type,storageBucket:saved.bucket,storagePath:saved.storagePath});
-  } catch(error){console.error("Permanent "+type+" archive failed:",{messageId:event.message.id,error:String(error)});}
+    await markAttachment(event,"stored",fileName,saved.storagePath);
+  } catch(error){
+    console.error("Permanent "+type+" archive failed:",{messageId:event.message.id,error:String(error)});
+    try { await markAttachment(event,"failed",fileName,saved?.storagePath,error.message); }
+    catch(auditError){console.error("Media receipt update failed:",auditError);}
+  }
 }
 
 // Persistent intake ledger: a received event is NOT a successfully archived file.
@@ -460,6 +466,7 @@ async function processImageEvent(event, silent = false) {
   const scopeId = getScopeId(source);
   const rawName = await getLineDisplayName(source, userId);
   const displayName = honorificName(rawName) || "พี่";
+  let storedImage = null;
   try {
     // Supabase is optional for image understanding. A database/network failure must never block Vision.
     try {
@@ -473,7 +480,6 @@ async function processImageEvent(event, silent = false) {
     const imageExt = mime === "image/png" ? "png" : mime === "image/webp" ? "webp" : "jpg";
     const imageFileName = `LINE_image_${event.message.id}.${imageExt}`;
     cacheLiveFile(scopeId, imageFileName, mime, bytes);
-    let storedImage = null;
     try {
       storedImage = await uploadSupabaseFile(bytes, scopeId, event.message.id, imageFileName, mime);
       await saveFileMemory({ scopeId, userId, displayName: rawName, source, fileName: imageFileName, lineMessageId: event.message.id, openaiFileId: null, mime, summary: "รูปภาพ/เอกสารจาก LINE", storageBucket: storedImage.bucket, storagePath: storedImage.storagePath });
