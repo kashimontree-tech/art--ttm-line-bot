@@ -830,6 +830,27 @@ async function processTextEvent(event) {
     } catch(err) {console.error("Mention identity error",err);await replyMessage(event.replyToken,"ตรวจชื่อสมาชิกที่ถูกแท็กไม่สำเร็จครับ กรุณาลองใหม่");}
     return;
   }
+  // LINE sometimes sends a visually tagged name without mention metadata.
+  // For read-only identity answers, resolve a unique exact @display-name match
+  // in saved member profiles. Never mutate aliases from this fallback.
+  if(tagged.length===0 && /(?:อาร์ต|art)/iu.test(userText) &&
+     /(?:ใคร|ชื่ออะไร|ชื่อว่าอะไร|เรียกว่าอะไร)/u.test(userText) && /@/.test(userText)) {
+    try{
+      const candidates=(await supabaseRequest("line_members?select=display_name,ttm_name&limit=500",{method:"GET"}))||[];
+      const matches=candidates.filter(m=>{
+        const profile=String(m.display_name||"").trim();
+        return profile && (userText.includes("@"+profile) || (
+          /^[\\p{L}\\p{N}._-]+$/u.test(profile) &&
+          new RegExp("@"+profile.replace(/[.*+?^\u0024{}()|[\]\\]/g,"\\  const memberAudit=require("./group-member-audit");")+"(?=\\s|$)","iu").test(userText)
+        ));
+      });
+      if(matches.length===1){
+        const m=matches[0];
+        await replyMessage(event.replyToken,"คนที่พี่แท็กคือ"+honorificName(m.ttm_name||knownMemberAlias(m.display_name)||m.display_name)+"ครับ");
+        return;
+      }
+    }catch(err){console.error("Fallback tagged identity lookup failed",err);}
+  }
   const memberAudit=require("./group-member-audit");
   if(memberAudit.cmd(userText)){
     const answer=await memberAudit.run({event,scopeId,supabaseRequest});
