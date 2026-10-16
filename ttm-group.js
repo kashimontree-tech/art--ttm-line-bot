@@ -22,6 +22,7 @@ module.exports=function(app,{supabaseRequest,createSupabaseSignedUrl,getThaiPdfF
  app.get("/ttm-convert-ui.js",(req,res)=>res.type("application/javascript").sendFile(require("path").join(__dirname,"ttm-convert-ui.js")));
  app.get("/ttm-files-ui.js",(req,res)=>res.type("application/javascript").sendFile(require("path").join(__dirname,"ttm-files-ui.js")));
  app.get("/ttm-gallery.js",(req,res)=>res.type("application/javascript").sendFile(require("path").join(__dirname,"ttm-gallery.js")));
+ app.get("/ttm-notes-ui.js",(req,res)=>res.type("application/javascript").sendFile(require("path").join(__dirname,"ttm-notes-ui.js")));
  app.get("/ttm-manifest.webmanifest",(req,res)=>res.type("application/manifest+json").set("Cache-Control","no-cache").send(JSON.stringify({name:"ART TTM Group",short_name:"ART TTM",start_url:"/ttm-group",scope:"/",display:"standalone",background_color:"#f4f7f5",theme_color:"#126148",icons:[{src:"/ttm-logo.webp",sizes:"any",type:"image/webp",purpose:"any"}]})));
  app.get("/ttm-sw.js",(req,res)=>res.type("application/javascript").set("Cache-Control","no-cache").send("self.addEventListener('install',e=>self.skipWaiting());self.addEventListener('activate',e=>e.waitUntil(self.clients.claim()));self.addEventListener('fetch',e=>{if(e.request.method!=='GET'||new URL(e.request.url).pathname.startsWith('/api/'))return;e.respondWith(fetch(e.request).catch(()=>caches.match(e.request)))});"));
  app.get("/ttm-group",(req,res)=>res.sendFile(require("path").join(__dirname,"ttm-group.html")));
