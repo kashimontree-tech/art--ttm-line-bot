@@ -1255,8 +1255,8 @@ async function loadApprovedTtmKnowledge() {
     "&approval_status=eq.approved&visibility=eq.ttm_internal&order=updated_at.desc&limit=25",
     {method:"GET"}
   ))||[];
-  return rows.map(x=>"เอกสาร: "+x.title+" (หมวด "+x.category+", เวอร์ชัน "+x.version+")\\n"+
-    String(x.content||"").slice(0,650)).join("\\n---\\n").slice(0,11000);
+  return rows.map(x=>"เอกสาร: "+x.title+" (หมวด "+x.category+", เวอร์ชัน "+x.version+")\n"+
+    String(x.content||"").slice(0,650)).join("\n---\n").slice(0,11000);
 }
 
 async function loadLongTermMemory(scopeId) {
