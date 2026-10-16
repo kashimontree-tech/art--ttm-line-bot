@@ -173,6 +173,16 @@ app.post("/webhook", express.raw({ type: "application/json" }), async (req, res)
     }
 
     const body = JSON.parse(req.body.toString("utf8"));
+    // Audit each attachment before acknowledging LINE; if the audit store is
+    // unavailable, return a retryable error rather than losing the event silently.
+    for(const event of body.events||[]){
+      if(event.type==="message"&&event.message?.id&&["image","file"].includes(event.message.type)){
+        const payload=[{line_message_id:String(event.message.id),scope_id:getScopeId(event.source||{}),media_type:event.message.type,status:"received"}];
+        await supabaseRequest("ttm_attachment_receipts?on_conflict=line_message_id",{
+          method:"POST",prefer:"resolution=ignore-duplicates,return=minimal",body:JSON.stringify(payload)
+        });
+      }
+    }
     res.sendStatus(200);
 
     for (const event of body.events || []) {
@@ -449,7 +459,7 @@ async function processImageEvent(event, silent = false) {
     if (!silent) await replyMessage(event.replyToken, answer);
   } catch (e) {
     console.error("Image processing error:", e);
-    try{await markAttachment(event,"failed",null,null,e.message)}catch(auditError){console.error("Receipt audit failed:",auditError)}
+    if(!storedImage?.storagePath)try{await markAttachment(event,"failed",null,null,e.message)}catch(auditError){console.error("Receipt audit failed:",auditError)}
     if (!silent) await replyMessage(event.replyToken, `${displayName}ครับ ตอนนี้อาร์ตอ่านรูปนี้ไม่สำเร็จ กรุณาลองส่งรูปใหม่อีกครั้งครับ`);
   }
 }
