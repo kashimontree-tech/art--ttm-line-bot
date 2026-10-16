@@ -1382,9 +1382,57 @@ async function replyMessage(replyToken, text) {
   }
 }
 
+
+async function auditSanmaiSlipsOnce(){
+ const albumId="104914b0-ffac-4622-ba76-4437718b58de";
+ const members=await supabaseRequest("ttm_group_album_items?select=file_id&album_id=eq."+albumId,{method:"GET"});
+ const existing=await supabaseRequest("ttm_slip_review?select=file_id,status&album_id=eq."+albumId,{method:"GET"});
+ const completed=new Set((existing||[]).filter(x=>x.status!=="pending").map(x=>x.file_id));
+ const pending=(members||[]).filter(x=>!completed.has(x.file_id));
+ console.log("Slip review candidates",pending.length);
+ const batches=[];for(let i=0;i<pending.length;i+=3)batches.push(pending.slice(i,i+3));
+ let cursor=0;
+ const worker=async()=>{
+  while(cursor<batches.length){
+   const group=batches[cursor++];
+   try{
+    const photos=[];
+    for(const row of group){
+     const found=await supabaseRequest("line_memories?select=id,file_name,mime_type,storage_bucket,storage_path&id=eq."+row.file_id+"&limit=1",{method:"GET"});
+     const file=found?.[0];if(!file?.storage_path)throw Error("Missing archived image record "+row.file_id);
+     const bytes=await downloadSupabaseFile(file.storage_bucket,file.storage_path);
+     photos.push({file,bytes});
+    }
+    const content=[{type:"input_text",text:"You are auditing Thai bank transfer/payment slip images. Each image is one distinct indexed item, in exact order Image 1, Image 2, etc. Transcribe carefully; DO NOT invent amounts or reference numbers. Return ONLY valid JSON with a 'results' array of exactly "+photos.length+" objects. Each object: index (1-based), is_slip (boolean), amount (numeric THB if legible, else null), transaction_ref (string if clear else null), transaction_date (as visibly printed string or null), bank_or_service (string or null), note (brief Thai explanation including if receipt looks like same transaction as another). If not a transaction slip set amount null. Do not confuse available balance, fee, or recipient account with transfer amount. Carefully check digits."}];
+    for(let i=0;i<photos.length;i++){content.push({type:"input_text",text:"Image "+(i+1)+":"});content.push({type:"input_image",image_url:"data:"+(photos[i].file.mime_type||"image/jpeg")+";base64,"+photos[i].bytes.toString("base64")})}
+    const response=await fetch("https://api.openai.com/v1/responses",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+CLEAN_OPENAI_KEY},body:JSON.stringify({model:process.env.OPENAI_VISION_MODEL||"gpt-5.4",input:[{role:"user",content}],max_output_tokens:1600})});
+    if(!response.ok)throw Error("Vision API status "+response.status+" "+(await response.text()).slice(0,180));
+    const result=extractOutputText(await response.json());
+    const json=JSON.parse(result.replace(/^\x60\x60\x60(?:json)?/i,"").replace(/\x60\x60\x60$/,"").trim());
+    if(!Array.isArray(json.results)||json.results.length!==photos.length)throw Error("Vision item count mismatch");
+    for(let i=0;i<photos.length;i++){
+     const x=json.results.find(v=>Number(v.index)===i+1);
+     if(!x)throw Error("Missing image index "+i);
+     const amount=typeof x.amount==="number"&&Number.isFinite(x.amount)&&x.amount>=0?x.amount:null;
+     const status=x.is_slip===false?"not_slip":amount!==null?"read":"needs_review";
+     await supabaseRequest("ttm_slip_review?on_conflict=file_id",{method:"POST",prefer:"resolution=merge-duplicates,return=minimal",body:JSON.stringify([{file_id:photos[i].file.id,album_id:albumId,status,amount,transaction_ref:x.transaction_ref||null,transaction_date:x.transaction_date||null,bank_or_service:x.bank_or_service||null,notes:String(x.note||"").slice(0,600),processed_at:new Date().toISOString()}])});
+    }
+   }catch(e){
+    console.error("Slip review batch error:",e.message);
+    for(const row of group){
+     await supabaseRequest("ttm_slip_review?on_conflict=file_id",{method:"POST",prefer:"resolution=merge-duplicates,return=minimal",body:JSON.stringify([{file_id:row.file_id,album_id:albumId,status:"failed",notes:String(e.message).slice(0,500),processed_at:new Date().toISOString()}])}).catch(x=>console.error("Slip audit save failed",x.message));
+    }
+   }
+  }
+ };
+ await Promise.all([worker(),worker()]);
+ console.log("Slip review complete",pending.length);
+}
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Art TTM server running on port ${PORT}`);
+  if(process.env.TTM_SANMAI_AUDIT_RUN==="1"){setTimeout(()=>auditSanmaiSlipsOnce().catch(e=>console.error("Slip review failed",e)),1500)}
   console.log("Credential diagnostics:", {
     supabaseUrlOk: /^https:\/\//.test(CLEAN_SUPABASE_URL),
     supabaseUrlHost: (() => { try { return new URL(CLEAN_SUPABASE_URL).host; } catch { return "INVALID"; } })(),
