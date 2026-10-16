@@ -885,8 +885,8 @@ async function processTextEvent(event) {
       }
       const unresolved=roster.filter(x=>!x.alias).length;
       const lines=roster.slice(0,55).map((x,i)=>(i+1)+". "+x.profile+" → "+(x.alias?honorificName(x.alias):"ยังไม่ทราบชื่อเล่น"));
-      await replyMessage(event.replyToken,("📋 สมาชิกที่ Art TTM เคยเห็นในกลุ่มนี้ "+roster.length+" บัญชี; ยังไม่มีชื่อเล่น "+unresolved+" บัญชี\\n"+(lines.join("\\n")||"ยังไม่พบสมาชิกในประวัติ")+
-        "\\nหมายเหตุ: เป็นบัญชีจากประวัติที่บอทอ่านได้ ไม่ใช่สมาชิกทุกคนใน LINE กลุ่ม").slice(0,4850));
+      await replyMessage(event.replyToken,("📋 สมาชิกที่ Art TTM เคยเห็นในกลุ่มนี้ "+roster.length+" บัญชี; ยังไม่มีชื่อเล่น "+unresolved+" บัญชี\n"+(lines.join("\n")||"ยังไม่พบสมาชิกในประวัติ")+
+        "\nหมายเหตุ: เป็นบัญชีจากประวัติที่บอทอ่านได้ ไม่ใช่สมาชิกทุกคนใน LINE กลุ่ม").slice(0,4850));
     }catch(err){console.error("Observed group roster failed:",err);await replyMessage(event.replyToken,"ดึงรายชื่อที่บอทจำได้ไม่สำเร็จครับ กรุณาลองใหม่");}
     return;
   }
