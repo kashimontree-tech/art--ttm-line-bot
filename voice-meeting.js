@@ -30,6 +30,31 @@ function setup(app,{supabaseRequest}) {
   }catch(e){console.error("Voice transcribe error:",e);return res.status(502).json({error:"ส่งเสียงถอดความไม่สำเร็จ กรุณาลองส่งช่วงนี้อีกครั้ง"});}
   finally{s.busy=false;}
  });
+ app.post("/api/voice-meeting/:token/upload",express.raw({type:"application/octet-stream",limit:"24mb"}),async(req,res)=>{
+  const s=get(req.params.token);if(!s)return res.status(410).json({error:"ลิงก์หมดอายุ กรุณาขอลิงก์ใหม่ใน LINE"});
+  if(s.busy)return res.status(409).json({error:"ระบบกำลังประมวลผล กรุณารอสักครู่"});
+  const bytes=req.body;
+  if(!Buffer.isBuffer(bytes)||!bytes.length)return res.status(400).json({error:"ไฟล์เสียงว่างเปล่า"});
+  const filename=String(req.get("x-audio-filename")||"recording.m4a");
+  const ext=filename.split(".").pop().toLowerCase();
+  const allowed={mp3:"audio/mpeg",m4a:"audio/mp4",mp4:"audio/mp4",wav:"audio/wav",webm:"audio/webm",ogg:"audio/ogg",mpeg:"audio/mpeg",mpga:"audio/mpeg",flac:"audio/flac"};
+  if(!allowed[ext])return res.status(415).json({error:"รองรับไฟล์ MP3, M4A, MP4, WAV, WebM, OGG, FLAC เท่านั้น"});
+  if(s.segments.length>=240)return res.status(413).json({error:"จำนวนไฟล์สูงสุดแล้ว"});
+  s.busy=true;
+  try{
+    const fd=new FormData();
+    fd.append("model",process.env.OPENAI_TRANSCRIBE_MODEL||"gpt-4o-mini-transcribe");
+    fd.append("language","th");
+    fd.append("file",new Blob([bytes],{type:allowed[ext]}),"meeting."+ext);
+    const r=await fetch("https://api.openai.com/v1/audio/transcriptions",{method:"POST",headers:{Authorization:"Bearer "+process.env.OPENAI_API_KEY},body:fd});
+    if(!r.ok)throw Error("transcribe "+r.status+" "+(await r.text()).slice(0,240));
+    const transcript=String((await r.json()).text||"").trim();
+    if(!transcript)return res.status(422).json({error:"ไม่พบคำพูดในไฟล์ กรุณาตรวจสอบเสียง"});
+    s.segments.push({text:transcript,at:new Date().toISOString()});
+    return res.json({ok:true,count:s.segments.length,transcript:transcript.slice(0,500),characters:transcript.length});
+  }catch(e){console.error("Voice file upload:",e);return res.status(502).json({error:"ถอดเสียงไฟล์ไม่สำเร็จ กรุณาลองใหม่หรือตัดไฟล์ให้สั้นลง"});}
+  finally{s.busy=false;}
+ });
  app.post("/api/voice-meeting/:token/finish",async(req,res)=>{
   const s=get(req.params.token);if(!s)return res.status(410).json({error:"ลิงก์หมดอายุ"});if(s.busy)return res.status(409).json({error:"ระบบกำลังรับเสียง"});
   if(!s.segments.some(x=>x.text))return res.status(400).json({error:"ยังไม่มีข้อความถอดเสียง"});
