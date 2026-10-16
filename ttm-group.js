@@ -50,6 +50,39 @@ module.exports=function(app,{supabaseRequest,createSupabaseSignedUrl,getThaiPdfF
    res.set("Cache-Control","no-store").json({ok:true,name,size:bytes.length});
   }catch(err){console.error("LINE Notes import failed:",err);res.status(500).json({error:"บันทึกไฟล์ไม่สำเร็จ กรุณาลองใหม่หรือตรวจสอบพื้นที่จัดเก็บ"})}
  });
+
+ // Named album management is scoped to the authenticated LINE group; original media remains in storage.
+ app.post("/api/ttm-group/albums/list",auth,express.json({limit:"4kb"}),async(req,res)=>{
+  try {
+   const scope=String(req.body?.scope||""),kind=String(req.body?.kind||"");
+   if(!/^group:C[a-f0-9]{32}$/i.test(scope)||!["photo","file"].includes(kind))return res.sendStatus(400);
+   if(!await allowed(scope,req.get("x-archive-pin")))return res.sendStatus(403);
+   const albums=await supabaseRequest("ttm_group_albums?select=id,name,created_at&scope_id=eq."+encodeURIComponent(scope)+"&kind=eq."+kind+"&order=created_at.desc",{method:"GET"});
+   const links=await supabaseRequest("ttm_group_album_items?select=album_id,file_id&scope_id=eq."+encodeURIComponent(scope),{method:"GET"});
+   res.set("Cache-Control","no-store").json({albums:(albums||[]).map(a=>({...a,fileIds:(links||[]).filter(x=>x.album_id===a.id).map(x=>x.file_id)}))});
+  }catch(e){console.error("List group albums:",e);res.status(500).json({error:"ไม่สามารถโหลดอัลบั้มได้"})}
+ });
+ app.post("/api/ttm-group/albums/create",auth,express.json({limit:"4kb"}),async(req,res)=>{
+  try{
+   const scope=String(req.body?.scope||""),kind=String(req.body?.kind||""),name=String(req.body?.name||"").trim();
+   if(!/^group:C[a-f0-9]{32}$/i.test(scope)||!["photo","file"].includes(kind)||!name||name.length>100)return res.sendStatus(400);
+   if(!await allowed(scope,req.get("x-archive-pin")))return res.sendStatus(403);
+   const result=await supabaseRequest("ttm_group_albums?on_conflict=scope_id,kind,name",{method:"POST",prefer:"resolution=ignore-duplicates,return=representation",body:JSON.stringify([{scope_id:scope,kind,name}])});
+   res.set("Cache-Control","no-store").json({ok:true,created:!!result?.length});
+  }catch(e){console.error("Create group album:",e);res.status(500).json({error:"สร้างอัลบั้มไม่สำเร็จ"})}
+ });
+ app.post("/api/ttm-group/albums/add",auth,express.json({limit:"4kb"}),async(req,res)=>{
+  try{
+   const scope=String(req.body?.scope||""),kind=String(req.body?.kind||""),albumId=String(req.body?.albumId||""),fileId=String(req.body?.fileId||"");
+   if(!/^group:C[a-f0-9]{32}$/i.test(scope)||!["photo","file"].includes(kind)||![albumId,fileId].every(x=>/^[a-f0-9-]{36}$/i.test(x)))return res.sendStatus(400);
+   if(!await allowed(scope,req.get("x-archive-pin")))return res.sendStatus(403);
+   const albums=await supabaseRequest("ttm_group_albums?select=id&scope_id=eq."+encodeURIComponent(scope)+"&kind=eq."+kind+"&id=eq."+albumId,{method:"GET"});
+   const found=await supabaseRequest("line_memories?select=id,mime_type,storage_path&scope_id=eq."+encodeURIComponent(scope)+"&id=eq."+fileId+"&limit=1",{method:"GET"});
+   if(!albums?.length||!found?.[0]?.storage_path||(/^image\\//i.test(found[0].mime_type||"")!==(kind==="photo")))return res.sendStatus(404);
+   await supabaseRequest("ttm_group_album_items?on_conflict=album_id,file_id",{method:"POST",prefer:"resolution=ignore-duplicates,return=minimal",body:JSON.stringify([{album_id:albumId,scope_id:scope,file_id:fileId}])});
+   res.set("Cache-Control","no-store").json({ok:true});
+  }catch(e){console.error("Add to group album:",e);res.status(500).json({error:"เพิ่มลงอัลบั้มไม่สำเร็จ"})}
+ });
  app.get("/api/ttm-group/files",auth,(req,res)=>res.status(410).json({error:"โปรดเปิดผ่านโฟลเดอร์ LINE กลุ่ม"}));
  app.get("/api/ttm-group/file/:id",auth,async(req,res)=>{try{if(!/^[a-f0-9-]{36}$/i.test(req.params.id))return res.sendStatus(400);const rows=await supabaseRequest("line_memories?select=file_name,mime_type,scope_id,storage_bucket,storage_path&id=eq."+encodeURIComponent(req.params.id)+"&limit=1",{method:"GET"});const f=rows?.[0];if(!f?.storage_bucket||!f?.storage_path)return res.sendStatus(404);if(/^image\//i.test(f.mime_type||"")){if(!await allowed(f.scope_id,req.get("x-photo-pin")))return res.status(403).json({error:"Group photo password required"})}else if(!await allowed(f.scope_id,req.get("x-archive-pin")))return res.status(403).json({error:"Group file password required"});const url=await createSupabaseSignedUrl(f.storage_bucket,f.storage_path,3600);res.set("Cache-Control","no-store").json({url,name:f.file_name})}catch(e){res.status(500).json({error:"Download unavailable"})}});
  require("./ttm-convert")(app,{auth,getThaiPdfFont,uploadSupabaseFile,saveFileMemory,createSupabaseSignedUrl});
