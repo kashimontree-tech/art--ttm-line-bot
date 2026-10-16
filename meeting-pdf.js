@@ -56,7 +56,7 @@ async function makePdf(text,font){
   }catch(error){reject(error);}
  });
 }
-async function handle({text,scopeId,displayName,supabaseRequest,getThaiPdfFont,uploadSupabaseFile,createSupabaseSignedUrl,saveFileMemory}){
+async function handle({text,scopeId,displayName,supabaseRequest,getThaiPdfFont,uploadSupabaseFile,createSupabaseSignedUrl,saveFileMemory,downloadSupabaseFile}){
  if(!/^(group|room):/.test(scopeId))return "กรุณาส่งคำสั่งนี้ใน LINE กลุ่มที่ต้องการให้ส่งรายงานครับ";
  const rows=(await supabaseRequest("line_messages?select=display_name,message_text,content,message_type,role,created_at&scope_id=eq."+encodeURIComponent(scopeId)+"&order=created_at.desc&limit=250",{method:"GET"}))||[];
  const past=rows.reverse().filter(r=>r.role==="user");
@@ -73,9 +73,31 @@ async function handle({text,scopeId,displayName,supabaseRequest,getThaiPdfFont,u
  const docs=files.filter(f=>/\.(txt|pdf|docx|m4a|mp3|wav|mp4)$/i.test(f.file_name||"")&&f.storage_bucket&&f.storage_path);
  if(docs.length){
   const f=docs[0];
-  const notes=String(f.text_content||f.memory_text||"").trim();
-  input+="\nไฟล์แนบล่าสุดในกลุ่ม: "+f.file_name+"\n"+(notes?"บันทึกไฟล์: "+notes:"ไฟล์นี้มีอยู่ในคลัง แต่ระบบยังไม่มีเนื้อหาที่อ่านได้");
-  if(!notes&&input.length<100)return "พบไฟล์ "+f.file_name+" ในคลังกลุ่มแล้ว แต่ยังไม่มีข้อความถอดเสียง/เนื้อหาที่ตรวจสอบได้ จึงยังไม่สร้าง PDF จากข้อมูลที่ไม่ครบครับ กรุณาส่งข้อความประชุมหรือไฟล์ข้อความที่อ่านได้";
+  let notes=String(f.text_content||f.memory_text||"").trim();
+  if(!notes || /รอวิเคราะห์|ต้นฉบับจาก LINE/.test(notes)){
+   const bytes=await downloadSupabaseFile(f.storage_bucket,f.storage_path);
+   const ext=String(f.file_name||"").split(".").pop().toLowerCase();
+   if(["m4a","mp3","wav","mp4"].includes(ext)){
+     const mime=ext==="mp3"?"audio/mpeg":ext==="wav"?"audio/wav":"audio/mp4";
+     const data=new FormData();data.append("model",process.env.OPENAI_TRANSCRIBE_MODEL||"gpt-4o-mini-transcribe");data.append("language","th");data.append("file",new Blob([bytes],{type:mime}),"meeting."+ext);
+     const rr=await fetch("https://api.openai.com/v1/audio/transcriptions",{method:"POST",headers:{Authorization:"Bearer "+process.env.OPENAI_API_KEY},body:data});
+     if(!rr.ok)throw Error("Meeting audio read failed "+rr.status);
+     notes=String((await rr.json()).text||"").trim();
+   }else if(["pdf","docx","txt"].includes(ext)){
+     if(ext==="txt")notes=bytes.toString("utf8");
+     else{
+      const fd=new FormData();fd.append("purpose","user_data");fd.append("file",new Blob([bytes],{type:ext==="pdf"?"application/pdf":"application/vnd.openxmlformats-officedocument.wordprocessingml.document"}),f.file_name);
+      const rr=await fetch("https://api.openai.com/v1/files",{method:"POST",headers:{Authorization:"Bearer "+process.env.OPENAI_API_KEY},body:fd});
+      if(!rr.ok)throw Error("Meeting file upload failed "+rr.status);
+      const id=(await rr.json()).id;
+      const ar=await fetch("https://api.openai.com/v1/responses",{method:"POST",headers:{"Content-Type":"application/json",Authorization:"Bearer "+process.env.OPENAI_API_KEY},body:JSON.stringify({model:process.env.OPENAI_FILE_MODEL||"gpt-5.4",instructions:"อ่านข้อความในเอกสารเป็นภาษาไทยอย่างละเอียด คืนข้อมูลสำคัญทั้งหมดสำหรับรายงานประชุม ห้ามเติมข้อมูล",input:[{role:"user",content:[{type:"input_file",file_id:id},{type:"input_text",text:"อ่านข้อความเอกสารนี้เพื่อใช้สรุปการประชุม"}]}],max_output_tokens:6000})});
+      if(!ar.ok)throw Error("Meeting document read failed "+ar.status);
+      notes=extract(await ar.json());
+     }
+   }
+  }
+  if(!notes||/รอวิเคราะห์|ต้นฉบับจาก LINE/.test(notes))return "พบไฟล์ "+f.file_name+" ในกลุ่ม แต่ยังอ่านข้อความในไฟล์ไม่ได้ จึงไม่สร้าง PDF จากข้อมูลที่ไม่ครบครับ";
+  input+="\nข้อมูลจากไฟล์ "+f.file_name+":\n"+notes.slice(0,50000);
  }
  if(input.length<40)return (displayName||"พี่")+"ครับ กรุณาส่งรายละเอียดประชุมเป็นข้อความในกลุ่มก่อน แล้วพิมพ์ 'อาร์ต สรุปประชุมเป็น PDF' ครับ";
  if(rows.length===250&&!start)return "ในกลุ่มมีข้อความจำนวนมาก กรุณาส่งคำว่า 'ข้อมูลประชุม' ก่อนเริ่มส่งรายละเอียด เพื่อให้อาร์ตเลือกเฉพาะข้อมูลประชุมอย่างถูกต้องครับ";
