@@ -2,7 +2,7 @@
 const $=id=>document.getElementById(id);
 let active=null,photoPin="",requestSeq=0,photos=[],selectedDay=null,selectedAlbum=null,albums=[];
 async function post(url,data,pass){
- const r=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json","x-admin-pin":pin,"x-archive-pin":archivePin,"x-photo-pin":pass},body:JSON.stringify(data),cache:"no-store"});
+ const r=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json","x-admin-pin":pin,"x-archive-pin":pass,"x-photo-pin":pass},body:JSON.stringify(data),cache:"no-store"});
  const out=await r.json();if(!r.ok)throw Error(out.error||"ไม่สามารถเปิดโฟลเดอร์ได้");return out;
 }
 async function showFolders(){
