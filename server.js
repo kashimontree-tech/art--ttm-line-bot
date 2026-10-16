@@ -805,12 +805,29 @@ async function processTextEvent(event) {
       return;
     }
   }
-  if (tagged.length===1 && /(?:อาร์ต|art)/iu.test(userText) && /(?:คนนี้|นี่ใคร|เป็นใคร|คือใคร)/u.test(userText)){
+  if (tagged.length===1 && /(?:อาร์ต|art)/iu.test(userText) && /(?:คนนี้|นี่ใคร|เป็นใคร|คือใคร|นี่คือใคร|ใครอ่ะ|ใครอะ)/u.test(userText)){
     const taggedId=tagged[0].userId;
     const known=(await supabaseRequest("line_members?select=ttm_name,display_name&line_user_id=eq."+encodeURIComponent(taggedId)+"&limit=1",{method:"GET"}))||[];
     const profile=await getLineProfile(source,taggedId);
     const named=known[0]?.ttm_name||knownMemberAlias(profile?.displayName)||knownMemberAlias(known[0]?.display_name)||known[0]?.display_name||profile?.displayName;
+    console.log("Tagged identity resolved:",{hasSavedAlias:!!known[0]?.ttm_name,hasProfile:!!profile?.displayName});
     await replyMessage(event.replyToken,named?"บัญชีที่พี่แท็กคือ "+honorificName(named)+" ครับ":"ยังไม่ทราบชื่อเรียกของบัญชีนี้ครับ");
+    return;
+  }
+  // Resolve tagged-member identity deterministically, rather than asking AI
+  // to guess who "@DisplayName อาร์ตนี่ใคร" refers to. The stable LINE ID wins.
+  if (tagged.length===1 && /(?:อาร์ต|art)/iu.test(userText) &&
+      /(?:ใคร|ชื่ออะไร|ชื่อว่าอะไร|เรียกว่าอะไร|รู้จัก(?:คนนี้|เขา|เค้า)ไหม)/u.test(userText) &&
+      !/(?:อาร์ต(?:เอง)?เป็นใคร|art(?:\s*ttm)?\s*คือใคร)/iu.test(userText)) {
+    try {
+      const id=tagged[0].userId;
+      const rows=(await supabaseRequest("line_members?select=ttm_name,display_name&line_user_id=eq."+encodeURIComponent(id)+"&limit=1",{method:"GET"}))||[];
+      const profile=await getLineProfile(source,id);
+      const resolved=rows[0]?.ttm_name||knownMemberAlias(profile?.displayName)||rows[0]?.display_name||profile?.displayName;
+      await replyMessage(event.replyToken,resolved
+        ? "คนที่พี่แท็กคือ"+honorificName(resolved)+"ครับ"
+        : "อาร์ตยังไม่มีชื่อบัญชีที่พี่แท็กครับ กรุณาให้เจ้าของบัญชีส่งข้อความหนึ่งครั้ง");
+    } catch(err) {console.error("Mention identity error",err);await replyMessage(event.replyToken,"ตรวจชื่อสมาชิกที่ถูกแท็กไม่สำเร็จครับ กรุณาลองใหม่");}
     return;
   }
   const memberAudit=require("./group-member-audit");
