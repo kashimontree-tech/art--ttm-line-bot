@@ -52,7 +52,7 @@ module.exports=function(app,{supabaseRequest,createSupabaseSignedUrl,getThaiPdfF
    const types={pdf:"application/pdf",docx:"application/vnd.openxmlformats-officedocument.wordprocessingml.document",doc:"application/msword",xlsx:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",xls:"application/vnd.ms-excel",pptx:"application/vnd.openxmlformats-officedocument.presentationml.presentation",ppt:"application/vnd.ms-powerpoint",png:"image/png",jpg:"image/jpeg",jpeg:"image/jpeg",webp:"image/webp",heic:"image/heic",txt:"text/plain",csv:"text/csv",zip:"application/zip"};
    if(!types[ext])return res.status(415).json({error:"ประเภทไฟล์นี้ยังไม่รองรับ"});
    const mime=types[ext];
-   const kind=/^image\\//i.test(mime)?"photo":"file";
+   const kind=String(mime).toLowerCase().startsWith("image/")?"photo":"file";
    const albumId=String(req.body?.albumId||"");
    if(albumId){
     if(!/^[a-f0-9-]{36}$/i.test(albumId))return res.status(400).json({error:"รหัสอัลบั้มไม่ถูกต้อง"});
