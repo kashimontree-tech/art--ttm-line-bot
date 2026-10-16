@@ -7,6 +7,8 @@ const app = express();
 app.get("/slip-admin.html", (req,res) => res.sendFile(require("path").join(__dirname,"slip-admin.html")));
 require("./slip-admin").setupSlipAdmin(app,{supabaseRequest,createSupabaseSignedUrl,getThaiPdfFont,uploadSupabaseFile,saveFileMemory});
 require("./ttm-group")(app,{supabaseRequest,createSupabaseSignedUrl,getThaiPdfFont,uploadSupabaseFile,saveFileMemory});
+const voiceMeetings = require("./voice-meeting");
+voiceMeetings.setup(app,{supabaseRequest});
 const liveFileCache = new Map();
 const downloadTokens = new Map();
 
@@ -786,6 +788,11 @@ async function processTextEvent(event) {
     console.error("Supabase write error:", error);
   }
 
+  if (voiceMeetings.pick(userText)) {
+    try { const answer=await voiceMeetings.openForGroup(scopeId);await replyMessage(event.replyToken,answer); }
+    catch(error){console.error("Voice meeting link error:",error);await replyMessage(event.replyToken,"ไม่สามารถสร้างลิงก์ประชุมได้ครับ");}
+    return;
+  }
   // Explicit meeting commands may be used by any member, without mentioning the bot.
   const meeting = require("./meeting-notes");
   if (meeting.kind(userText)) {
