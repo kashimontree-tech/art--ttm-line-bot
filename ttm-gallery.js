@@ -6,19 +6,32 @@ async function post(url,data,pass){
  const out=await r.json();if(!r.ok)throw Error(out.error||"ไม่สามารถเปิดโฟลเดอร์ได้");return out;
 }
 async function showFolders(){
- active=null;photoPin="";photos=[];selectedDay=null;selectedAlbum=null;albums=[];requestSeq++;
+ const generation=++requestSeq;
+ active=null;photoPin="";photos=[];selectedDay=null;selectedAlbum=null;albums=[];
  $("photoGallery").replaceChildren();$("photoFolders").replaceChildren();
  $("photoCount").textContent="กำลังโหลดโฟลเดอร์...";$("photoMessage").textContent="";
  try{
   const result=await api("/api/ttm-group/photo-folders");
-  const folders=result.folders||[];
-  $("photoCount").textContent=folders.length+" โฟลเดอร์จาก LINE";
-  for(const folder of folders){
-   const b=document.createElement("button");b.textContent="📁 "+folder.name+" ("+folder.count+" รูป)";
-   b.onclick=()=>{const code=window.prompt("กรอกรหัสผ่านเพื่อเปิดโฟลเดอร์ "+folder.name);if(code!==null&&code.trim())openFolder(folder,code.trim())};$("photoFolders").append(b);
+  if(generation!==requestSeq)return; // Discard older simultaneous requests.
+  const unique=[...new Map((result.folders||[])
+   .filter(f=>String(f.scope||"").startsWith("group:"))
+   .map(f=>[f.scope,f])).values()];
+  const container=$("photoFolders");
+  const fragment=document.createDocumentFragment();
+  for(const folder of unique){
+   const b=document.createElement("button");
+   b.textContent="📁 "+folder.name+" ("+folder.count+" รูป)";
+   b.onclick=()=>{
+    const code=window.prompt("กรอกรหัสผ่านเพื่อเปิดโฟลเดอร์ "+folder.name);
+    if(code!==null&&code.trim())openFolder(folder,code.trim());
+   };
+   fragment.append(b);
   }
-  $("photoMessage").textContent="เลือกโฟลเดอร์ที่ต้องการดูรูป";
- }catch(err){$("photoMessage").textContent=err.message}
+  if(generation!==requestSeq)return;
+  container.replaceChildren(fragment);
+  $("photoCount").textContent=unique.length+" โฟลเดอร์จาก LINE";
+  $("photoMessage").textContent="เลือก LINE กลุ่ม แล้วใส่รหัส เพื่อสร้างอัลบั้มใหม่ได้";
+ }catch(err){if(generation===requestSeq)$("photoMessage").textContent=err.message}
 }
 async function openFolder(folder,pass){
  try{
@@ -45,7 +58,7 @@ async function createAlbum(){
 }
 async function addToAlbum(item){
  if(!albums.length){alert("กรุณาสร้างอัลบั้มก่อน");return}
- const options=albums.map((a,i)=>(i+1)+". "+a.name).join("\\n");
+ const options=albums.map((a,i)=>(i+1)+". "+a.name).join("\n");
  const choice=window.prompt("เลือกเลขอัลบั้มที่จะเพิ่มรูปนี้ (ไม่ลบจากวันที่)\\n"+options);
  if(choice===null)return;
  const i=Number(choice)-1;
