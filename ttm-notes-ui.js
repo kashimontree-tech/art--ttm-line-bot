@@ -32,8 +32,7 @@
  const refreshAlbums=async()=>{
   const scope=$("notesGroup").value,code=$("notesPass").value.trim();
   if(!scope||!code)throw new Error("เลือก LINE กลุ่มและกรอกรหัสกลุ่มก่อน");
-  const kind=getKind();
-  if(!kind)throw new Error("เลือกไฟล์หรือภาพจากเครื่องก่อน");
+  const kind=$("notesAlbumKind").value;
   const select=$("notesAlbum"),previous=select.value;
   const result=await albumPost("/api/ttm-group/albums/list",{scope,kind});
   select.replaceChildren();
@@ -45,8 +44,8 @@
  $("notesLoadAlbums").onclick=async()=>{try{await refreshAlbums()}catch(e){$("notesAlbumStatus").textContent=e.message}};
  $("notesNewAlbum").onclick=async()=>{
   try{
-   const scope=$("notesGroup").value,code=$("notesPass").value.trim(),kind=getKind();
-   if(!scope||!code||!kind)throw new Error("เลือกกลุ่ม ใส่รหัส และเลือกไฟล์ก่อนสร้างอัลบั้ม");
+   const scope=$("notesGroup").value,code=$("notesPass").value.trim(),kind=$("notesAlbumKind").value;
+   if(!scope||!code)throw new Error("เลือกกลุ่มและใส่รหัสก่อนสร้างอัลบั้ม");
    const name=await window.ttmAsk("ตั้งชื่ออัลบั้มย่อยใหม่");
    if(!name)return;
    await albumPost("/api/ttm-group/albums/create",{scope,kind,name:name.trim()});
@@ -56,8 +55,13 @@
   }catch(e){$("notesAlbumStatus").textContent=e.message}
  };
  const resetAlbum=()=>{$("notesAlbum").replaceChildren(new Option("เก็บในโฟลเดอร์วันที่เท่านั้น",""));$("notesAlbumStatus").textContent="เลือกไฟล์แล้วกดโหลดอัลบั้ม"};
- $("notesGroup").addEventListener("change",resetAlbum);
- $("notesFiles").addEventListener("change",resetAlbum);
+ $("notesGroup").addEventListener("change",()=>{resetAlbum();if($("notesPass").value.trim())refreshAlbums().catch(e=>$("notesAlbumStatus").textContent=e.message)});
+ $("notesPass").addEventListener("change",()=>{refreshAlbums().catch(e=>$("notesAlbumStatus").textContent=e.message)});
+ $("notesAlbumKind").addEventListener("change",()=>{resetAlbum();if($("notesGroup").value&&$("notesPass").value.trim())refreshAlbums().catch(e=>$("notesAlbumStatus").textContent=e.message)});
+ $("notesFiles").addEventListener("change",()=>{
+  try{const kind=getKind();if(kind&&kind!==$("notesAlbumKind").value){$("notesAlbumKind").value=kind;resetAlbum();refreshAlbums().catch(e=>$("notesAlbumStatus").textContent=e.message)}}
+  catch(e){$("notesAlbumStatus").textContent=e.message}
+ });
  const asBase64=file=>new Promise((resolve,reject)=>{
   const reader=new FileReader();
   reader.onerror=()=>reject(new Error("อ่านไฟล์ในเครื่องไม่สำเร็จ"));
@@ -69,7 +73,7 @@
   const scope=$("notesGroup").value,code=$("notesPass").value.trim(),items=[...$("notesFiles").files];
   const status=$("notesStatus"),button=$("notesSubmit");
   if(!scope||!code||!items.length){status.textContent="กรุณาเลือกกลุ่ม ใส่รหัส และเลือกไฟล์";return}
-  try{getKind()}catch(err){status.textContent=err.message;return}
+  try{const actual=getKind();if(actual!==$("notesAlbumKind").value){status.textContent="ชนิดอัลบั้มไม่ตรงกับไฟล์ กรุณาเลือกอัลบั้มใหม่";return}}catch(err){status.textContent=err.message;return}
   if(items.length>20){status.textContent="อัปโหลดได้ไม่เกิน 20 ไฟล์ต่อครั้ง";return}
   button.disabled=true;
   let done=0,warnings=[];
