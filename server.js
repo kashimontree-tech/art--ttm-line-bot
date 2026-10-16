@@ -779,7 +779,7 @@ async function processTextEvent(event) {
 
   // Administrator-confirmed group nickname mapping. Never infer identity from an image.
   // The mapping is persisted to the tagged member's stable LINE User ID.
-  const tagged = (event.message?.mention?.mentionees||[]).filter(m=>m.type==="user" && m.userId);
+  const tagged = (event.message?.mention?.mentionees||[]).filter(m=>m.type==="user" && m.userId && m.userId !== process.env.LINE_BOT_USER_ID);
   const renameTagged = /(?:อาร์ต|art).*(?:จำ|เรียก|ชื่อ).*(?:แอ๋ม|Kanokkorn)/iu.test(userText)
     && /(?:แอ๋ม)/u.test(userText);
   if (renameTagged && tagged.length===1) {
@@ -846,6 +846,22 @@ async function processTextEvent(event) {
         return;
       }
     } catch (err) { console.error("Fallback tagged identity lookup failed",err); }
+  }
+  // Transparent capability report. Never imply access to all group members,
+  // unrestricted ChatGPT tools, or autonomous actions from this bot.
+  if (/^(?:@?อาร์ต|art(?:\\s*ttm)?)\\s*(?:ความสามารถ|ทำอะไรได้บ้าง|สถานะระบบ|ช่วยเหลือ|คำสั่ง)$/iu.test(String(userText||"").trim())) {
+    await replyMessage(event.replyToken, [
+      "🤖 Art TTM — ความสามารถใน LINE กลุ่ม",
+      "• เรียกสมาชิกด้วยชื่อเล่นที่บันทึกตาม LINE User ID",
+      "• สรุปข้อความประชุมและข้อมูลที่บอทได้รับ",
+      "• ค้นหาไฟล์ที่บันทึกไว้และช่วยทำ PDF/Excel ตามคำสั่งที่รองรับ",
+      "• ช่วยตอบคำถาม วิเคราะห์งาน และคำนวณ",
+      "• ตรวจสมาชิกที่ LINE เปิดให้เข้าถึงด้วยคำสั่ง ‘อาร์ต ตรวจรายชื่อสมาชิกทั้งหมด’",
+      "",
+      "ข้อจำกัด: อ่านย้อนหลังได้เฉพาะข้อมูลที่บอทเก็บไว้ ไม่เห็นสมาชิก LINE ทั้งหมดโดยอัตโนมัติ และไม่สามารถใช้ทุกเครื่องมือเหมือน ChatGPT ส่วนตัว",
+      "ส่งคำสั่งที่ต้องการมาได้ครับ งานที่ต้องใช้สิทธิ์หรือมีค่าใช้จ่ายเพิ่มเติมจะขออนุมัติก่อน"
+    ].join("\\n"));
+    return;
   }
   const memberAudit=require("./group-member-audit");
   if(memberAudit.cmd(userText)){
