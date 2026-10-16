@@ -36,13 +36,15 @@ async function showFolders(){
 async function openFolder(folder,pass){
  try{
   const r=await post("/api/ttm-group/photos",{scope:folder.scope},pass);
-  active=folder;photoPin=pass;photos=r.photos||[];selectedDay=null;selectedAlbum=null;await loadAlbums();
+  active=folder;photoPin=pass;photos=r.photos||[];selectedDay=null;selectedAlbum=null;albums=[];
+  try{await loadAlbums()}catch(albumError){console.warn("Albums optional:",albumError);$("photoMessage").textContent="เข้าคลังภาพได้ แต่อัลบั้มยังโหลดไม่สำเร็จ";}
   $("photoFolders").replaceChildren();
   const back=document.createElement("button");back.textContent="← กลับไปโฟลเดอร์";back.onclick=()=>{if(selectedDay!==null||selectedAlbum!==null){selectedDay=null;selectedAlbum=null;renderPhotos()}else showFolders()};$("photoFolders").append(back);
   $("photoCount").textContent=folder.name+" • "+photos.length+" ภาพ";
   await renderPhotos();
  }catch(err){
-  $("photoMessage").textContent=err.message;
+  $("photoMessage").textContent="เปิดคลังไม่สำเร็จ: "+err.message;
+  console.error("Gallery folder open failure",err);
  }
 }
 async function loadAlbums(){
