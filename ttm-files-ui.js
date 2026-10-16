@@ -1,7 +1,7 @@
 (function(){
 const $=id=>document.getElementById(id);let scope="",pass="";
 async function folders(){
- scope="";pass="";archivePin="";files=[];$("fileInside").classList.add("hide");$("fileFolders").replaceChildren();$("loading").textContent="กำลังโหลดโฟลเดอร์...";
+ scope="";pass="";archivePin="";files=[];selectedFileDate=null;$("fileInside").classList.add("hide");$("fileFolders").replaceChildren();$("loading").textContent="กำลังโหลดโฟลเดอร์...";
  try{
  const data=await api("/api/ttm-group/file-folders");
  for(const f of data.folders||[]){
@@ -16,13 +16,13 @@ async function openFolder(f){
  try{
  const r=await fetch("/api/ttm-group/folder-files",{method:"POST",headers:{"Content-Type":"application/json","x-admin-pin":pin,"x-archive-pin":code.trim()},body:JSON.stringify({scope:f.scope}),cache:"no-store"});
  const data=await r.json();if(!r.ok)throw Error(data.error||"เปิดโฟลเดอร์ไม่สำเร็จ");
- scope=f.scope;pass=code.trim();archivePin=pass;files=data.files||[];
+ scope=f.scope;pass=code.trim();archivePin=pass;files=data.files||[];selectedFileDate=null;
  $("fileFolders").replaceChildren();$("fileInside").classList.remove("hide");$("query").value="";$("type").value="";render();
  $("loading").textContent=f.name+" • "+files.length+" ไฟล์";
  }catch(e){alert(e.message)}
 }
 window.showFileFolders=folders;
-$("fileBack").onclick=folders;
+$("fileBack").onclick=()=>{if(selectedFileDate!==null){selectedFileDate=null;render();$("loading").textContent="เลือกโฟลเดอร์วันที่"}else folders()};
 $("refreshFiles").onclick=()=>scope?refreshCurrent():folders();
 async function refreshCurrent(){
  if(!scope)return folders();
