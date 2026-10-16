@@ -242,6 +242,11 @@ app.post("/webhook", express.raw({ type: "application/json" }), async (req, res)
   }
 });
 
+function knownMemberAlias(profileName) {
+  // Owner-confirmed alias for the unique Kanokkorn LINE account in TTM group.
+  // Match only the identifiable LINE profile label, not face recognition.
+  return /Kanokkorn/i.test(String(profileName||"")) ? "แอ๋ม" : null;
+}
 function honorificName(name) {
   if (!name) return null;
   return /^พี่/.test(name) ? name : `พี่${name}`;
@@ -743,7 +748,7 @@ async function processTextEvent(event) {
   const lineProfile = await getLineProfile(source,userId);
   const rawDisplayName = lineProfile?.displayName||null;
   const savedMember = userId ? await supabaseRequest("line_members?select=ttm_name&line_user_id=eq."+encodeURIComponent(userId)+"&limit=1",{method:"GET"}).catch(()=>[]) : [];
-  const preferredName=String(savedMember?.[0]?.ttm_name||"").trim();
+  const preferredName=String(savedMember?.[0]?.ttm_name||knownMemberAlias(rawDisplayName)||"").trim();
   const addressedName=preferredName||rawDisplayName;
   const displayName = honorificName(addressedName);
   let mentionedMembers = [];
@@ -781,7 +786,7 @@ async function processTextEvent(event) {
     try {
       const id=tagged[0].userId;
       const profile=await getLineProfile(source,id);
-      if (!/^Kanokkorn$/iu.test(String(profile?.displayName||"").trim()))
+      if (!knownMemberAlias(profile?.displayName))
         return await replyMessage(event.replyToken,"กรุณาแท็กบัญชี Kanokkorn คนเดียวพร้อมระบุว่าเป็นพี่แอ๋มครับ");
       await upsertMember({scopeId,userId:id,displayName:profile.displayName,pictureUrl:profile.pictureUrl||null,sourceType:source.type||"group",groupId:source.groupId||null,roomId:source.roomId||null});
       await supabaseRequest("line_members?line_user_id=eq."+encodeURIComponent(id),{method:"PATCH",body:JSON.stringify({ttm_name:"แอ๋ม",updated_at:new Date().toISOString()})});
@@ -800,11 +805,11 @@ async function processTextEvent(event) {
       return;
     }
   }
-  if (tagged.length===1 && /(?:อาร์ต|art).*(?:คนนี้|นี่ใคร|เป็นใคร)/iu.test(userText)){
+  if (tagged.length===1 && /(?:อาร์ต|art)/iu.test(userText) && /(?:คนนี้|นี่ใคร|เป็นใคร|คือใคร)/u.test(userText)){
     const taggedId=tagged[0].userId;
     const known=(await supabaseRequest("line_members?select=ttm_name,display_name&line_user_id=eq."+encodeURIComponent(taggedId)+"&limit=1",{method:"GET"}))||[];
     const profile=await getLineProfile(source,taggedId);
-    const named=known[0]?.ttm_name||known[0]?.display_name||profile?.displayName;
+    const named=known[0]?.ttm_name||knownMemberAlias(profile?.displayName)||knownMemberAlias(known[0]?.display_name)||known[0]?.display_name||profile?.displayName;
     await replyMessage(event.replyToken,named?"บัญชีที่พี่แท็กคือ "+honorificName(named)+" ครับ":"ยังไม่ทราบชื่อเรียกของบัญชีนี้ครับ");
     return;
   }
@@ -948,7 +953,7 @@ async function captureMentionedMembers(event, scopeId) {
       roomId: source.roomId || null,
     });
     const matching=(await supabaseRequest("line_members?select=ttm_name&line_user_id=eq."+encodeURIComponent(mention.userId)+"&limit=1",{method:"GET"}).catch(()=>[]))||[];
-    captured.push({ userId: mention.userId, displayName: matching[0]?.ttm_name||name });
+    captured.push({ userId: mention.userId, displayName: matching[0]?.ttm_name||knownMemberAlias(name)||name });
   }
   return captured;
 }
