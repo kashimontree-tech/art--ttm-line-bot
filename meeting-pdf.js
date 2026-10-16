@@ -2,18 +2,58 @@ const PDFDocument=require("pdfkit");
 const isRequest=text=>/(?:อาร์ต|art(?:[\s_-]*ttm)?).{0,28}(?:สรุป|รายงาน|บันทึก).{0,26}(?:ประชุม).{0,26}(?:pdf|พีดีเอฟ)|(?:อาร์ต|art(?:[\s_-]*ttm)?).{0,28}(?:pdf|พีดีเอฟ).{0,24}(?:ประชุม)/iu.test(String(text||""));
 function extract(o){return (o.output||[]).flatMap(x=>x.content||[]).filter(x=>x.type==="output_text").map(x=>x.text).join("\n").trim()||String(o.output_text||"").trim()}
 async function makePdf(text,font){
+ const fs=require("fs");
+ const path=require("path");
+ const sharp=require("sharp");
+ const logoFile=path.join(__dirname,"ttm-logo.webp");
+ const logo=fs.existsSync(logoFile)?await sharp(logoFile).resize({width:420,withoutEnlargement:true}).png().toBuffer():null;
  return new Promise((resolve,reject)=>{
-  const doc=new PDFDocument({size:"A4",margin:46,bufferPages:true});
-  const chunks=[];doc.on("data",c=>chunks.push(c));doc.on("end",()=>resolve(Buffer.concat(chunks)));doc.on("error",reject);
-  doc.registerFont("thai",font);doc.font("thai");
-  doc.fillColor("#165743").fontSize(19).text("TTM HOME DESIGN & BUILD-IN",{align:"center"});
-  doc.moveDown(.3).fontSize(16).text("รายงานสรุปการประชุม",{align:"center"});
-  doc.moveDown(1).fillColor("#24362f").fontSize(11).text("จัดทำโดย Art TTM | "+new Date().toLocaleString("th-TH",{timeZone:"Asia/Bangkok"}),{align:"center"});
-  doc.moveDown(1).strokeColor("#9bb9ad").moveTo(46,doc.y).lineTo(549,doc.y).stroke();doc.moveDown();
-  doc.fillColor("#1c3028").fontSize(12).text(text,{lineGap:6,align:"left"});
-  const n=doc.bufferedPageRange().count;
-  for(let i=0;i<n;i++){doc.switchToPage(i);doc.font("thai").fontSize(9).fillColor("#666").text("TTM | หน้า "+(i+1)+"/"+n,46,790,{width:500,align:"right"});}
-  doc.end();
+  try{
+   const doc=new PDFDocument({size:"A4",margins:{top:150,bottom:72,left:52,right:52},bufferPages:true});
+   const chunks=[];doc.on("data",c=>chunks.push(c));doc.on("end",()=>resolve(Buffer.concat(chunks)));doc.on("error",reject);
+   doc.registerFont("thai",font);doc.font("thai");
+   const W=doc.page.width;
+   const header=()=>{
+    doc.save();
+    doc.rect(0,0,W,119).fill("#f2f7f4");
+    doc.rect(0,0,8,119).fill("#176248");
+    if(logo)doc.image(logo,48,21,{fit:[76,76]});
+    doc.fillColor("#16533f").font("thai").fontSize(16).text("TTM HOME DESIGN & BUILD-IN",137,28,{width:W-184});
+    doc.fillColor("#40594e").fontSize(11).text("บริษัท ทีทีเอ็ม โฮม ดีไซน์ แอนด์ บิวท์อิน จำกัด",137,57,{width:W-184});
+    doc.strokeColor("#b2cdbf").lineWidth(1).moveTo(47,112).lineTo(W-47,112).stroke();
+    doc.restore();
+   };
+   header();
+   doc.font("thai").fillColor("#183d32").fontSize(20).text("รายงานสรุปการประชุม",{align:"center"});
+   doc.moveDown(.3).fontSize(10.5).fillColor("#60776b").text("MEETING MINUTES  |  ART TTM",{align:"center"});
+   doc.moveDown(.4).fontSize(10.5).text("วันที่จัดทำ: "+new Date().toLocaleString("th-TH",{timeZone:"Asia/Bangkok",dateStyle:"long",timeStyle:"short"}),{align:"center"});
+   doc.moveDown(1.4);
+   const headings=/^(?:ชื่อโครงการ|ชื่อการประชุม|วันที่|วันเวลา|ผู้เข้าร่วม|ผู้เข้าประชุม|วาระ|ประเด็น|ข้อสรุป|มติ|งานที่|รายการงาน|เรื่องรอ|เรื่องติดตาม|สรุป|กำหนดส่ง|ผู้รับผิดชอบ)/u;
+   for(const line of String(text||"").split(/\r?\n/)){
+    const value=line.trim();
+    if(!value){doc.moveDown(.45);continue;}
+    const isHeading=headings.test(value)&&value.length<115;
+    if(isHeading){
+      doc.moveDown(.5);
+      doc.fillColor("#176248").fontSize(13).text(value.replace(/^#+\s*/,""),{lineGap:3});
+      doc.strokeColor("#d9e9df").moveTo(52,doc.y+3).lineTo(W-52,doc.y+3).stroke();
+      doc.moveDown(.5);
+    }else{
+      doc.fillColor("#263d32").fontSize(11.5).text(value.replace(/^#+\s*/,""),{lineGap:5,paragraphGap:3});
+    }
+   }
+   const pageCount=doc.bufferedPageRange().count;
+   for(let i=0;i<pageCount;i++){
+    doc.switchToPage(i);
+    if(i>0)header();
+    doc.save().font("thai").fillColor("#60766b").fontSize(9);
+    doc.strokeColor("#d3e4da").moveTo(52,758).lineTo(W-52,758).stroke();
+    doc.text("จัดทำโดย Art TTM  |  โปรดตรวจทานมติและรายละเอียดก่อนใช้งาน",52,769,{width:390});
+    doc.text("หน้า "+(i+1)+" / "+pageCount,W-130,769,{width:80,align:"right"});
+    doc.restore();
+   }
+   doc.end();
+  }catch(error){reject(error);}
  });
 }
 async function handle({text,scopeId,displayName,supabaseRequest,getThaiPdfFont,uploadSupabaseFile,createSupabaseSignedUrl,saveFileMemory}){
