@@ -1164,6 +1164,18 @@ async function maybeReturnKnownFile(text, scopeId, displayName, requestUserId) {
     lines.push("ลิงก์มีอายุ 1 ชั่วโมง แต่ต้นฉบับยังเก็บอยู่ใน Supabase");
     return lines.join("\n").slice(0,4800);
   }
+  // Generic "return the saved file" commands have no filename: use the latest
+  // verified archive entry from the CURRENT LINE group only.
+  const genericReturn=/(?:ส่ง|ขอ|เอา|ดาวน์โหลด).*(?:ไฟล์|รูป|ภาพ).*(?:ที่บันทึก|บันทึกไว้|ล่าสุด|กลับมา|คืนมา)|(?:ส่ง|ขอ|เอา).*(?:กลับมา|คืนมา).*(?:ไฟล์|รูป|ภาพ)/i.test(text||"");
+  if(genericReturn && !/(?:ชื่อไฟล์|ชื่อรูป|ชื่อภาพ)/i.test(text||"") && !/[a-zA-Z0-9_-]+\.(?:xlsx|xls|pdf|docx|doc|zip|png|jpg|jpeg)\b/i.test(text||"")) {
+    const wantImage=/(?:รูป|ภาพ)/i.test(text||"");
+    const target=wantImage ? files.find(f=>/^image\//i.test(f.mime_type||"")) : files[0];
+    if(!target)return `${displayName||"พี่"}ครับ ยังไม่พบ${wantImage?"รูปภาพ":"ไฟล์"}ที่บันทึกไว้ใน LINE กลุ่มนี้ครับ`;
+    try {
+      const link=await createSupabaseSignedUrl(target.storage_bucket,target.storage_path,3600);
+      return `${displayName||"พี่"}ครับ ส่ง${wantImage?"รูปภาพ":"ไฟล์"}ที่บันทึกล่าสุดในกลุ่มนี้กลับมาแล้วครับ ✅\nชื่อ: ${target.file_name}\n${link}\nลิงก์ดาวน์โหลดมีอายุ 1 ชั่วโมงครับ`;
+    }catch(err){console.error("Latest archive link:",err);return `${displayName||"พี่"}ครับ พบไฟล์ล่าสุด “${target.file_name}” แต่สร้างลิงก์ไม่สำเร็จ กรุณาลองใหม่ครับ`;}
+  }
   const exact=String(text||"").match(/([^\s“”"'<>]+\.(?:xlsx|xls|pdf|docx|doc|zip|png|jpg|jpeg))/i)?.[1];
   const exactNorm=norm(exact);
   let matches=exactNorm?files.filter(f=>norm(f.file_name)===exactNorm):[];
