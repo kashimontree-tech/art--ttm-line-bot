@@ -871,6 +871,25 @@ async function processTextEvent(event) {
     ].join("\n"));
     return;
   }
+  // Reliable roster from the bot's own observed conversations. This does
+  // not pretend to enumerate LINE group members (an API permission limitation).
+  if (/(?:อาร์ต|art)/iu.test(userText) && /(?:รายชื่อที่จำได้|สมาชิกที่รู้จัก|ชื่อเล่นสมาชิกที่จำได้)/u.test(userText)) {
+    try {
+      const history=(await supabaseRequest("line_messages?select=line_user_id,display_name&scope_id=eq."+encodeURIComponent(scopeId)+"&role=eq.user&order=created_at.desc&limit=500",{method:"GET"}))||[];
+      const unique=new Map();
+      for(const item of history){if(item.line_user_id && !unique.has(item.line_user_id))unique.set(item.line_user_id,item.display_name||"ไม่ทราบโปรไฟล์");}
+      const roster=[];
+      for(const [id,profile] of unique){
+        const member=(await supabaseRequest("line_members?select=ttm_name,display_name&line_user_id=eq."+encodeURIComponent(id)+"&limit=1",{method:"GET"}))||[];
+        roster.push({profile:member[0]?.display_name||profile,alias:member[0]?.ttm_name||""});
+      }
+      const unresolved=roster.filter(x=>!x.alias).length;
+      const lines=roster.slice(0,55).map((x,i)=>(i+1)+". "+x.profile+" → "+(x.alias?honorificName(x.alias):"ยังไม่ทราบชื่อเล่น"));
+      await replyMessage(event.replyToken,("📋 สมาชิกที่ Art TTM เคยเห็นในกลุ่มนี้ "+roster.length+" บัญชี; ยังไม่มีชื่อเล่น "+unresolved+" บัญชี\\n"+(lines.join("\\n")||"ยังไม่พบสมาชิกในประวัติ")+
+        "\\nหมายเหตุ: เป็นบัญชีจากประวัติที่บอทอ่านได้ ไม่ใช่สมาชิกทุกคนใน LINE กลุ่ม").slice(0,4850));
+    }catch(err){console.error("Observed group roster failed:",err);await replyMessage(event.replyToken,"ดึงรายชื่อที่บอทจำได้ไม่สำเร็จครับ กรุณาลองใหม่");}
+    return;
+  }
   const memberAudit=require("./group-member-audit");
   if(memberAudit.cmd(userText)){
     const answer=await memberAudit.run({event,scopeId,supabaseRequest});
