@@ -786,6 +786,19 @@ async function processTextEvent(event) {
     console.error("Supabase write error:", error);
   }
 
+  // Explicit meeting commands may be used by any member, without mentioning the bot.
+  const meeting = require("./meeting-notes");
+  if (meeting.kind(userText)) {
+    try {
+      const answer = await meeting.handle({text:userText,scopeId,displayName,supabaseRequest});
+      await saveMessage({lineMessageId:null,scopeId,userId:null,displayName:"Art TTM",groupId:source.groupId||null,messageType:"text",text:answer,role:"assistant"});
+      await replyMessage(event.replyToken,answer);
+    } catch(error) {
+      console.error("Meeting notes error:",error);
+      await replyMessage(event.replyToken,"ระบบบันทึกประชุมขัดข้องชั่วคราวครับ กรุณาลองใหม่อีกครั้ง");
+    }
+    return;
+  }
   if (!isArtInvoked(event)) return; // Do not interrupt ordinary group conversation.
 
   let recentContext = "";
