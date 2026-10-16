@@ -1,0 +1,19 @@
+{
+  "name": "ซักเลย | จองเครื่องซักอบ",
+  "short_name": "ซักเลย",
+  "description": "จองเครื่องซักและอบผ้า ร้านซักเลย",
+  "lang": "th",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#FFD51F",
+  "theme_color": "#FFD51F",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
