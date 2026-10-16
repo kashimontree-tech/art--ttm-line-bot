@@ -1,5 +1,5 @@
 const PDFDocument=require("pdfkit");
-const isRequest=text=>/(?:อาร์ต|art(?:[\s_-]*ttm)?).{0,28}(?:สรุป|รายงาน|บันทึก).{0,26}(?:ประชุม).{0,26}(?:pdf|พีดีเอฟ)|(?:อาร์ต|art(?:[\s_-]*ttm)?).{0,28}(?:pdf|พีดีเอฟ).{0,24}(?:ประชุม)/iu.test(String(text||""));
+const isRequest=text=>{const t=String(text||"").replace(/\s+/g,"");return /(?:อาร์ต|artttm|@artttm)/iu.test(t)&&/(?:ประชุม|meeting)/iu.test(t)&&/(?:สรุป|รายงาน|บันทึก|pdf|พีดีเอฟ)/iu.test(t)};
 function extract(o){return (o.output||[]).flatMap(x=>x.content||[]).filter(x=>x.type==="output_text").map(x=>x.text).join("\n").trim()||String(o.output_text||"").trim()}
 async function makePdf(text,font){
  const fs=require("fs");
@@ -58,7 +58,7 @@ async function makePdf(text,font){
 }
 async function handle({text,scopeId,displayName,supabaseRequest,getThaiPdfFont,uploadSupabaseFile,createSupabaseSignedUrl,saveFileMemory}){
  if(!/^(group|room):/.test(scopeId))return "กรุณาส่งคำสั่งนี้ใน LINE กลุ่มที่ต้องการให้ส่งรายงานครับ";
- const rows=(await supabaseRequest("line_messages?select=display_name,message_text,content,role,created_at&scope_id=eq."+encodeURIComponent(scopeId)+"&order=created_at.desc&limit=250",{method:"GET"}))||[];
+ const rows=(await supabaseRequest("line_messages?select=display_name,message_text,content,message_type,role,created_at&scope_id=eq."+encodeURIComponent(scopeId)+"&order=created_at.desc&limit=250",{method:"GET"}))||[];
  const past=rows.reverse().filter(r=>r.role==="user");
  const start=[...past].reverse().findIndex(r=>/(?:เริ่มประชุม|ข้อมูลประชุม|เริ่มส่งข้อมูลประชุม)/i.test(r.message_text||r.content||""));
  let selected;
@@ -66,7 +66,17 @@ async function handle({text,scopeId,displayName,supabaseRequest,getThaiPdfFont,u
  else selected=past.slice(-60);
  const commandText=String(text||"");const inline=commandText.replace(/^.*?(?:pdf|พีดีเอฟ)\s*[:：-]?\s*/iu,"").trim();
  const transcript=selected.filter(r=>!isRequest(r.message_text||r.content)).map(r=>(r.display_name||"สมาชิก")+": "+String(r.message_text||r.content||"")).join("\n");
- const input=(transcript+"\n"+(inline.length>12?inline:"")).trim();
+ let input=(transcript+"\n"+(inline.length>12?inline:"")).trim();
+ // Include a recently uploaded group attachment as primary evidence rather than
+ // telling members to reattach an already archived file.
+ const files=(await supabaseRequest("line_memories?select=file_name,mime_type,storage_bucket,storage_path,created_at,text_content,memory_text&scope_id=eq."+encodeURIComponent(scopeId)+"&storage_path=not.is.null&order=created_at.desc&limit=12",{method:"GET"}))||[];
+ const docs=files.filter(f=>/\.(txt|pdf|docx|m4a|mp3|wav|mp4)$/i.test(f.file_name||"")&&f.storage_bucket&&f.storage_path);
+ if(docs.length){
+  const f=docs[0];
+  const notes=String(f.text_content||f.memory_text||"").trim();
+  input+="\nไฟล์แนบล่าสุดในกลุ่ม: "+f.file_name+"\n"+(notes?"บันทึกไฟล์: "+notes:"ไฟล์นี้มีอยู่ในคลัง แต่ระบบยังไม่มีเนื้อหาที่อ่านได้");
+  if(!notes&&input.length<100)return "พบไฟล์ "+f.file_name+" ในคลังกลุ่มแล้ว แต่ยังไม่มีข้อความถอดเสียง/เนื้อหาที่ตรวจสอบได้ จึงยังไม่สร้าง PDF จากข้อมูลที่ไม่ครบครับ กรุณาส่งข้อความประชุมหรือไฟล์ข้อความที่อ่านได้";
+ }
  if(input.length<40)return (displayName||"พี่")+"ครับ กรุณาส่งรายละเอียดประชุมเป็นข้อความในกลุ่มก่อน แล้วพิมพ์ 'อาร์ต สรุปประชุมเป็น PDF' ครับ";
  if(rows.length===250&&!start)return "ในกลุ่มมีข้อความจำนวนมาก กรุณาส่งคำว่า 'ข้อมูลประชุม' ก่อนเริ่มส่งรายละเอียด เพื่อให้อาร์ตเลือกเฉพาะข้อมูลประชุมอย่างถูกต้องครับ";
  if(input.length>85000)return "รายละเอียดประชุมยาวเกินไป กรุณาแบ่งส่งเป็นชุดครับ";
