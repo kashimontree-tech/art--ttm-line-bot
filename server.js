@@ -791,7 +791,7 @@ async function processTextEvent(event) {
   const meetingPdf=require("./meeting-pdf");
   if (meetingPdf.isRequest(userText)) {
     try {
-      const answer=await meetingPdf.handle({text:userText,scopeId,displayName,supabaseRequest,getThaiPdfFont,uploadSupabaseFile,createSupabaseSignedUrl,saveFileMemory});
+      const answer=await meetingPdf.handle({text:userText,scopeId,displayName,supabaseRequest,getThaiPdfFont,uploadSupabaseFile,createSupabaseSignedUrl,saveFileMemory,downloadSupabaseFile});
       await replyMessage(event.replyToken,answer);
     } catch(error) {
       console.error("Meeting PDF error:",error);
