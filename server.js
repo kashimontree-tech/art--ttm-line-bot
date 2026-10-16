@@ -891,15 +891,15 @@ async function processTextEvent(event) {
     return;
   }
   // Shared knowledge is private staging only. No cross-group reads or writes.
-  if (/^(?:อาร์ต|art(?:\\s*ttm)?)\\s*(?:สถานะซิงก์|สถานะฐานความรู้กลาง)$/iu.test(String(userText||"").trim())) {
+  if (/^(?:อาร์ต|art(?:\s*ttm)?)\s*(?:สถานะซิงก์|สถานะฐานความรู้กลาง)$/iu.test(String(userText||"").trim())) {
     try {
       const rows=(await supabaseRequest("ttm_shared_knowledge?select=approval_status,visibility&limit=1000",{method:"GET"}))||[];
       const approved=rows.filter(x=>x.approval_status==="approved").length;
       const pending=rows.filter(x=>x.approval_status==="pending").length;
       await replyMessage(event.replyToken,
-        "ฐานความรู้กลาง TTM (ส่วนจัดเตรียม)\\n"+
-        "รายการในระบบ: "+rows.length+"\\nรออนุมัติ: "+pending+"\\nอนุมัติแล้ว: "+approved+
-        "\\nยังไม่เปิดซิงก์อัตโนมัติกับ ChatGPT ส่วนตัว และยังไม่เปิดแชร์ข้ามกลุ่มครับ");
+        "ฐานความรู้กลาง TTM (ส่วนจัดเตรียม)\n"+
+        "รายการในระบบ: "+rows.length+"\nรออนุมัติ: "+pending+"\nอนุมัติแล้ว: "+approved+
+        "\nยังไม่เปิดซิงก์อัตโนมัติกับ ChatGPT ส่วนตัว และยังไม่เปิดแชร์ข้ามกลุ่มครับ");
     }catch(err){console.error("Shared knowledge status failed:",err);await replyMessage(event.replyToken,"ตรวจสถานะฐานความรู้กลางไม่สำเร็จครับ");}
     return;
   }
