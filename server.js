@@ -921,6 +921,18 @@ async function processTextEvent(event) {
     console.error("Supabase read error:", error);
   }
 
+  // Distinguish the LINE sender from an explicitly requested recipient.
+  // Example: Benz says "บอกพี่เบียร์หน่อย" => address Beer, not Benz.
+  let intendedRecipient = null;
+  try {
+    const recipientMatch=String(userText||"").match(/(?:บอก|ตอบ|อธิบาย|แจ้ง|พูดกับ|ส่งให้|เล่าให้|สรุปให้)\\s*(?:กับ|ให้)?\\s*พี่([ก-๙a-zA-Z]{1,30})/u);
+    if(recipientMatch){
+      const candidates=(await supabaseRequest("line_members?select=ttm_name&limit=250",{method:"GET"}))||[];
+      const target=recipientMatch[1];
+      const registered=candidates.some(m=>String(m.ttm_name||"").trim()===target);
+      if(registered) intendedRecipient=honorificName(target);
+    }
+  }catch(err){console.error("Recipient lookup failed",err);}
   let answer;
   try {
     answer = (/(?:แสดง|ดู|ขอ|เช็ค|ตรวจ|บอก)\s*(?:LINE\s*)?(?:User\s*ID|ยูสเซอร์ไอดี)(?:\s*(?:ของฉัน|ของผม|ของพี่|ฉัน|ผม|พี่))?|(?:LINE\s*)?User\s*ID\s*(?:ของฉัน|ของผม|ของพี่)/i.test(userText)
@@ -939,13 +951,19 @@ async function processTextEvent(event) {
       (wantsPdfConversion(userText) ? await convertLatestExcelToPdf(scopeId, displayName) : null) ||
       (wantsExcelConversion(userText) ? await convertLatestAttachmentToExcel(scopeId, displayName) : null) ||
       await maybeSaveLatestAttachment(userText, scopeId, displayName) ||
-      await askOpenAI(userText, recentContext, memberContext, longTermMemory, displayName, mentionedMembers);
+      await askOpenAI(userText, recentContext, memberContext, longTermMemory, displayName, mentionedMembers, intendedRecipient);
   } catch (error) {
     console.error("OpenAI processing error:", error);
     answer = "ขออภัยครับ ระบบ Art TTM มีปัญหาชั่วคราว กรุณาลองส่งข้อความอีกครั้งครับ";
   }
 
-  answer=enforceSenderNickname(answer,rawDisplayName,preferredName);
+  // For requests addressed to another named member, greet that recipient.
+  if(intendedRecipient && typeof answer==="string"){
+    answer=answer.replace(/^\\s*พี่[^\\s,:：\\n]{1,35}(?:ครับ|ค่ะ)?[,:：\\s]*/u,"").trim();
+    answer=intendedRecipient+"ครับ "+answer;
+  } else {
+    answer=enforceSenderNickname(answer,rawDisplayName,preferredName);
+  }
   try {
     await saveMessage({
       lineMessageId: null, scopeId, userId: null, displayName: "Art TTM",
@@ -1426,7 +1444,7 @@ async function saveLongTermMemory({ scopeId, userId, displayName, sourceType, so
   });
 }
 
-async function askOpenAI(userText, recentContext, memberContext, longTermMemory, currentDisplayName, mentionedMembers = []) {
+async function askOpenAI(userText, recentContext, memberContext, longTermMemory, currentDisplayName, mentionedMembers = [], intendedRecipient = null) {
   if (!OPENAI_API_KEY) throw new Error("Missing OPENAI_API_KEY");
 
   const mentionContext = mentionedMembers.length
@@ -1435,6 +1453,7 @@ async function askOpenAI(userText, recentContext, memberContext, longTermMemory,
 
   const input = [
     `ชื่อที่ต้องใช้เรียกผู้ส่งข้อความล่าสุด (ยืนยันจาก LINE User ID): ${currentDisplayName || "ไม่ทราบชื่อ"} ห้ามใช้ชื่อโปรไฟล์ที่เคยปรากฏในแชตย้อนหลังแทนชื่อนี้`,
+    intendedRecipient ? `คำสั่งนี้ผู้ส่งระบุให้ตอบถึง ${intendedRecipient} โดยตรง ให้ขึ้นต้นคำตอบด้วย ${intendedRecipient} ไม่ใช่ผู้ส่ง LINE; อย่าสลับตัวบุคคล` : "",
     `ข้อมูล @mention ของข้อความล่าสุด:\n${mentionContext}`,
     memberContext ? `สมาชิกที่ระบบรู้จักในห้องนี้:\n${memberContext}` : "",
     longTermMemory ? `ความจำระยะยาวของห้องนี้:\n${longTermMemory}` : "",
