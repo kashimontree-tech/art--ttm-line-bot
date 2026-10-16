@@ -959,11 +959,13 @@ async function processTextEvent(event) {
   let recentContext = "";
   let memberContext = "";
   let longTermMemory = "";
+  let approvedCompanyKnowledge = "";
   try {
-    [recentContext, memberContext, longTermMemory] = await Promise.all([
+    [recentContext, memberContext, longTermMemory, approvedCompanyKnowledge] = await Promise.all([
       loadRecentContext(scopeId),
       loadMemberContext(scopeId),
       loadLongTermMemory(scopeId),
+      loadApprovedTtmKnowledge(),
     ]);
   } catch (error) {
     console.error("Supabase read error:", error);
@@ -999,7 +1001,7 @@ async function processTextEvent(event) {
       (wantsPdfConversion(userText) ? await convertLatestExcelToPdf(scopeId, displayName) : null) ||
       (wantsExcelConversion(userText) ? await convertLatestAttachmentToExcel(scopeId, displayName) : null) ||
       await maybeSaveLatestAttachment(userText, scopeId, displayName) ||
-      await askOpenAI(userText, recentContext, memberContext, longTermMemory, displayName, mentionedMembers, intendedRecipient);
+      await askOpenAI(userText, recentContext, memberContext, longTermMemory, displayName, mentionedMembers, intendedRecipient, approvedCompanyKnowledge);
   } catch (error) {
     console.error("OpenAI processing error:", error);
     answer = "ขออภัยครับ ระบบ Art TTM มีปัญหาชั่วคราว กรุณาลองส่งข้อความอีกครั้งครับ";
@@ -1243,6 +1245,18 @@ async function loadMemberContext(scopeId) {
     [m.display_name, m.ttm_name, m.role_name || m.role, m.department, m.notes]
       .filter(Boolean).join(" | ")
   ).filter(Boolean).join("\n");
+}
+
+async function loadApprovedTtmKnowledge() {
+  // Only company knowledge explicitly approved and marked TTM internal.
+  // Personal memories, pending documents and group-private content are excluded.
+  const rows=(await supabaseRequest(
+    "ttm_shared_knowledge?select=title,category,content,source_reference,version" +
+    "&approval_status=eq.approved&visibility=eq.ttm_internal&order=updated_at.desc&limit=25",
+    {method:"GET"}
+  ))||[];
+  return rows.map(x=>"เอกสาร: "+x.title+" (หมวด "+x.category+", เวอร์ชัน "+x.version+")\\n"+
+    String(x.content||"").slice(0,650)).join("\\n---\\n").slice(0,11000);
 }
 
 async function loadLongTermMemory(scopeId) {
@@ -1492,7 +1506,7 @@ async function saveLongTermMemory({ scopeId, userId, displayName, sourceType, so
   });
 }
 
-async function askOpenAI(userText, recentContext, memberContext, longTermMemory, currentDisplayName, mentionedMembers = [], intendedRecipient = null) {
+async function askOpenAI(userText, recentContext, memberContext, longTermMemory, currentDisplayName, mentionedMembers = [], intendedRecipient = null, approvedCompanyKnowledge = "") {
   if (!OPENAI_API_KEY) throw new Error("Missing OPENAI_API_KEY");
 
   const mentionContext = mentionedMembers.length
@@ -1503,6 +1517,7 @@ async function askOpenAI(userText, recentContext, memberContext, longTermMemory,
     `ชื่อที่ต้องใช้เรียกผู้ส่งข้อความล่าสุด (ยืนยันจาก LINE User ID): ${currentDisplayName || "ไม่ทราบชื่อ"} ห้ามใช้ชื่อโปรไฟล์ที่เคยปรากฏในแชตย้อนหลังแทนชื่อนี้`,
     intendedRecipient ? `คำสั่งนี้ผู้ส่งระบุให้ตอบถึง ${intendedRecipient} โดยตรง ให้ขึ้นต้นคำตอบด้วย ${intendedRecipient} ไม่ใช่ผู้ส่ง LINE; อย่าสลับตัวบุคคล` : "",
     `ข้อมูล @mention ของข้อความล่าสุด:\n${mentionContext}`,
+    approvedCompanyKnowledge ? `ฐานความรู้บริษัท TTM ที่อนุมัติให้แชร์ภายในแล้ว:\n${approvedCompanyKnowledge}` : "",
     memberContext ? `สมาชิกที่ระบบรู้จักในห้องนี้:\n${memberContext}` : "",
     longTermMemory ? `ความจำระยะยาวของห้องนี้:\n${longTermMemory}` : "",
     recentContext ? `บทสนทนาล่าสุดในห้องนี้:\n${recentContext}` : "",
