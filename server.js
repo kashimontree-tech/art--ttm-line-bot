@@ -247,6 +247,14 @@ function knownMemberAlias(profileName) {
   // Match only the identifiable LINE profile label, not face recognition.
   return /Kanokkorn/i.test(String(profileName||"")) ? "แอ๋ม" : null;
 }
+function enforceSenderNickname(answer, rawProfile, nickname) {
+  if (!nickname || !rawProfile || typeof answer !== "string") return answer;
+  const raw=String(rawProfile).trim(), correct=honorificName(nickname);
+  if (!raw || raw===nickname) return answer;
+  // A reply must not address the sender by an outdated LINE profile name.
+  // Exact literal replacement; never use untrusted profile strings as regex.
+  return answer.split("พี่"+raw).join(correct).split(raw).join(correct);
+}
 function honorificName(name) {
   if (!name) return null;
   return /^พี่/.test(name) ? name : `พี่${name}`;
@@ -937,6 +945,7 @@ async function processTextEvent(event) {
     answer = "ขออภัยครับ ระบบ Art TTM มีปัญหาชั่วคราว กรุณาลองส่งข้อความอีกครั้งครับ";
   }
 
+  answer=enforceSenderNickname(answer,rawDisplayName,preferredName);
   try {
     await saveMessage({
       lineMessageId: null, scopeId, userId: null, displayName: "Art TTM",
@@ -1425,7 +1434,7 @@ async function askOpenAI(userText, recentContext, memberContext, longTermMemory,
     : "ไม่มี @mention ในข้อความล่าสุด";
 
   const input = [
-    `ผู้ส่งข้อความล่าสุดคือสมาชิก LINE ชื่อ: ${currentDisplayName || "ไม่ทราบชื่อ"}`,
+    `ชื่อที่ต้องใช้เรียกผู้ส่งข้อความล่าสุด (ยืนยันจาก LINE User ID): ${currentDisplayName || "ไม่ทราบชื่อ"} ห้ามใช้ชื่อโปรไฟล์ที่เคยปรากฏในแชตย้อนหลังแทนชื่อนี้`,
     `ข้อมูล @mention ของข้อความล่าสุด:\n${mentionContext}`,
     memberContext ? `สมาชิกที่ระบบรู้จักในห้องนี้:\n${memberContext}` : "",
     longTermMemory ? `ความจำระยะยาวของห้องนี้:\n${longTermMemory}` : "",
