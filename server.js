@@ -525,6 +525,40 @@ async function convertLatestAttachmentToExcel(scopeId, displayName) {
     return `${displayName || "พี่"}ครับ ยังไม่พบไฟล์ต้นฉบับสำหรับแปลง กรุณาส่ง PDF/รูปมาก่อนครับ`;
   }
 
+  // Meeting minutes are narrative documents, never quotations/invoices.
+  // Retain original paragraphs and use a dedicated workbook, without invented prices.
+  if (/(?:meeting[\s_-]*minutes|ประชุม|รายงานการประชุม|บันทึกการประชุม)/iu.test(source.fileName||"")) {
+    const uploaded=await uploadOpenAIFile(source.bytes,source.fileName,source.mime);
+    const rr=await fetch("https://api.openai.com/v1/responses",{
+      method:"POST",headers:{"Content-Type":"application/json",Authorization:"Bearer "+CLEAN_OPENAI_KEY},
+      body:JSON.stringify({model:process.env.OPENAI_FILE_MODEL||"gpt-5.4",
+        instructions:'Return ONLY JSON in the form {"title":"","date":"","attendees":[],"paragraphs":[{"heading":"","text":""}],"decisions":[],"tasks":[{"task":"","owner":"","due_date":""}],"unreadable":[]}. Preserve the order, wording, numbers, owners, dates and full original content. Each paragraph must contain authentic source text (not invented summaries). Do not fill unknown fields. The document is meeting minutes, NOT an invoice or BOQ. Never fabricate items/prices.',
+        input:[{role:"user",content:[{type:"input_file",file_id:uploaded.id},{type:"input_text",text:"Transcribe this meeting minutes document accurately, preserving all source paragraphs in order. Do not omit decisions or tasks."}]}],
+        max_output_tokens:9000})});
+    if(!rr.ok)throw Error("Meeting Excel read failed "+rr.status+": "+(await rr.text()).slice(0,200));
+    const raw=extractOutputText(await rr.json()).replace(/^\s*```(?:json)?\s*/i,"").replace(/\s*```$/,"").trim();
+    let parsed;try{parsed=JSON.parse(raw)}catch{throw Error("Cannot verify structured meeting minutes extraction")}
+    if(!Array.isArray(parsed.paragraphs)||!parsed.paragraphs.length) return (displayName||"พี่")+"ครับ ไม่สามารถอ่านข้อความต้นฉบับครบถ้วนได้ จึงยังไม่สร้าง Excel ที่ข้อมูลไม่ตรงครับ";
+    const wb=XLSX.utils.book_new();
+    const overview=XLSX.utils.aoa_to_sheet([["รายงานการประชุม TTM",""],["ชื่อการประชุม",parsed.title||""],["วันที่ประชุม",parsed.date||""],["ผู้เข้าร่วม",(parsed.attendees||[]).join(", ")],["ไฟล์ต้นฉบับ",source.fileName]]);
+    overview["!cols"]=[{wch:23},{wch:95}];XLSX.utils.book_append_sheet(wb,overview,"ข้อมูลการประชุม");
+    const paragraphs=XLSX.utils.aoa_to_sheet([["ลำดับ","หัวข้อ","รายละเอียดตามต้นฉบับ"],...parsed.paragraphs.map((p,i)=>[i+1,String(p.heading||""),String(p.text||"")])]);
+    paragraphs["!cols"]=[{wch:10},{wch:32},{wch:110}];paragraphs["!rows"]=[{hpt:25},...parsed.paragraphs.map(p=>({hpt:Math.min(160,Math.max(33,Math.ceil(String(p.text||"").length/90)*21))}))];
+    for(let n=1;n<=parsed.paragraphs.length;n++){const cell=paragraphs["C"+(n+1)];if(cell)cell.s={alignment:{wrapText:true,vertical:"top"}};}
+    XLSX.utils.book_append_sheet(wb,paragraphs,"เนื้อหาต้นฉบับ");
+    const todo=XLSX.utils.aoa_to_sheet([["งานที่ต้องทำ","ผู้รับผิดชอบ","กำหนดส่ง"],...(parsed.tasks||[]).map(t=>[t.task||"",t.owner||"",t.due_date||""])]);
+    todo["!cols"]=[{wch:80},{wch:28},{wch:24}];XLSX.utils.book_append_sheet(wb,todo,"งานที่มอบหมาย");
+    const decisions=XLSX.utils.aoa_to_sheet([["มติและข้อสรุป"],...(parsed.decisions||[]).map(v=>[String(v)])]);
+    decisions["!cols"]=[{wch:110}];XLSX.utils.book_append_sheet(wb,decisions,"มติที่ประชุม");
+    const xlsxBytes=Buffer.from(XLSX.write(wb,{type:"buffer",bookType:"xlsx"}));
+    const outName=String(source.fileName||"Meeting_Minutes").replace(/\.[^.]+$/,"")+".xlsx";
+    const stored=await uploadSupabaseFile(xlsxBytes,scopeId,"meeting-excel",outName,"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    await saveFileMemory({scopeId,userId:null,displayName:"Art TTM",source:{type:"bot"},fileName:outName,lineMessageId:null,openaiFileId:null,mime:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",summary:"Meeting minutes Excel preserving original paragraphs",storageBucket:stored.bucket,storagePath:stored.storagePath});
+    const url=await createSupabaseSignedUrl(stored.bucket,stored.storagePath,86400);
+    cacheLiveFile(scopeId,outName,"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",xlsxBytes);
+    return (displayName||"พี่")+"ครับ แปลงรายงานประชุมเป็น Excel โดยแยกข้อมูลประชุม เนื้อหาต้นฉบับ มติ และงานที่มอบหมาย ไม่ใช้ตารางราคาสินค้าแล้วครับ\n"+outName+"\n"+url+"\nโปรดเทียบกับต้นฉบับก่อนใช้เป็นเอกสารทางการครับ";
+  }
+
   let content;
   if (String(source.mime || "").startsWith("image/")) {
     const imageUrl = `data:${source.mime};base64,${source.bytes.toString("base64")}`;
