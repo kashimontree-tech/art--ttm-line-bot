@@ -771,7 +771,25 @@ async function processTextEvent(event) {
   }
 
   // Any member can explicitly set their preferred name, linked to their LINE user ID.
-  const requestedName=String(userText||"").match(/^(?:@?อาร์ต[\\s,:-]*)?(?:เรียก(?:ผม|ฉัน|พี่|หนู|เรา)ว่า|จำชื่อ(?:ผม|ฉัน|พี่)ว่า)\\s*([^\\n]{1,40})$/u);
+
+  // Administrator-confirmed group nickname mapping. Never infer identity from an image.
+  // The mapping is persisted to the tagged member's stable LINE User ID.
+  const tagged = (event.message?.mention?.mentionees||[]).filter(m=>m.type==="user" && m.userId);
+  const renameTagged = /(?:อาร์ต|art).*(?:จำ|เรียก|ชื่อ).*(?:แอ๋ม|Kanokkorn)/iu.test(userText)
+    && /(?:แอ๋ม)/u.test(userText);
+  if (renameTagged && tagged.length===1) {
+    try {
+      const id=tagged[0].userId;
+      const profile=await getLineProfile(source,id);
+      if (!/^Kanokkorn$/iu.test(String(profile?.displayName||"").trim()))
+        return await replyMessage(event.replyToken,"กรุณาแท็กบัญชี Kanokkorn คนเดียวพร้อมระบุว่าเป็นพี่แอ๋มครับ");
+      await upsertMember({scopeId,userId:id,displayName:profile.displayName,pictureUrl:profile.pictureUrl||null,sourceType:source.type||"group",groupId:source.groupId||null,roomId:source.roomId||null});
+      await supabaseRequest("line_members?line_user_id=eq."+encodeURIComponent(id),{method:"PATCH",body:JSON.stringify({ttm_name:"แอ๋ม",updated_at:new Date().toISOString()})});
+      await replyMessage(event.replyToken,"รับทราบครับ บัญชี Kanokkorn คือพี่แอ๋ม ต่อไปอาร์ตจะเรียกพี่แอ๋มครับ");
+    }catch(err){console.error("Tagged member alias save failed:",err);await replyMessage(event.replyToken,"ยังบันทึกชื่อพี่แอ๋มไม่สำเร็จครับ กรุณาลองใหม่");}
+    return;
+  }
+  const requestedName=String(userText||"").match(/^(?:@?อาร์ต[\s,:-]*)?(?:เรียก(?:ผม|ฉัน|พี่|หนู|เรา)ว่า|จำชื่อ(?:ผม|ฉัน|พี่)ว่า)\s*([^\n]{1,40})$/u);
   if(requestedName && userId){
     const nickname=requestedName[1].trim().replace(/[.!?。]+$/,"");
     if(nickname.length>=1 && nickname.length<=40){
@@ -781,6 +799,14 @@ async function processTextEvent(event) {
       }catch(err){console.error("Nickname save failed:",err);await replyMessage(event.replyToken,"ยังบันทึกชื่อเรียกไม่ได้ครับ กรุณาลองอีกครั้ง");}
       return;
     }
+  }
+  if (tagged.length===1 && /(?:อาร์ต|art).*(?:คนนี้|นี่ใคร|เป็นใคร)/iu.test(userText)){
+    const taggedId=tagged[0].userId;
+    const known=(await supabaseRequest("line_members?select=ttm_name,display_name&line_user_id=eq."+encodeURIComponent(taggedId)+"&limit=1",{method:"GET"}))||[];
+    const profile=await getLineProfile(source,taggedId);
+    const named=known[0]?.ttm_name||known[0]?.display_name||profile?.displayName;
+    await replyMessage(event.replyToken,named?"บัญชีที่พี่แท็กคือ "+honorificName(named)+" ครับ":"ยังไม่ทราบชื่อเรียกของบัญชีนี้ครับ");
+    return;
   }
   const meetingPdf=require("./meeting-pdf");
   if (meetingPdf.isRequest(userText)) {
@@ -921,7 +947,8 @@ async function captureMentionedMembers(event, scopeId) {
       groupId: source.groupId || null,
       roomId: source.roomId || null,
     });
-    captured.push({ userId: mention.userId, displayName: name });
+    const matching=(await supabaseRequest("line_members?select=ttm_name&line_user_id=eq."+encodeURIComponent(mention.userId)+"&limit=1",{method:"GET"}).catch(()=>[]))||[];
+    captured.push({ userId: mention.userId, displayName: matching[0]?.ttm_name||name });
   }
   return captured;
 }
