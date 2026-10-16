@@ -1,17 +1,21 @@
 (function(){
-const $=id=>document.getElementById(id);let scope="",pass="";
+const $=id=>document.getElementById(id);let scope="",pass="",folderRequest=0;
 async function folders(){
+ const generation=++folderRequest;
  scope="";pass="";archivePin="";files=[];selectedFileDate=null;selectedFileAlbum=null;fileAlbums=[];$("fileInside").classList.add("hide");$("fileFolders").replaceChildren();$("loading").textContent="กำลังโหลดโฟลเดอร์...";
  try{
  const data=await api("/api/ttm-group/file-folders");
- for(const f of data.folders||[]){
+ if(generation!==folderRequest)return;
+ const unique=[...new Map((data.folders||[]).filter(f=>String(f.scope||"").startsWith("group:")).map(f=>[f.scope,f])).values()];
+ for(const f of unique){
  const btn=document.createElement("button");btn.textContent="📁 "+f.name+" ("+f.count+" ไฟล์)";
  btn.onclick=()=>openFolder(f);$("fileFolders").append(btn)
  }
- $("loading").textContent=(data.folders||[]).length+" โฟลเดอร์"+(data.limited?" (แสดงจาก 1,000 รายการล่าสุด)":"");
+ $("loading").textContent=unique.length+" โฟลเดอร์"+(data.limited?" (แสดงจาก 1,000 รายการล่าสุด)":"");
  }catch(e){$("loading").textContent=e.message}
 }
 async function openFolder(f){
+ ++folderRequest;
  const code=window.prompt("กรอกรหัสเข้าถึงคลังไฟล์ของ "+f.name);if(code===null)return;
  try{
  const r=await fetch("/api/ttm-group/folder-files",{method:"POST",headers:{"Content-Type":"application/json","x-admin-pin":pin,"x-archive-pin":code.trim()},body:JSON.stringify({scope:f.scope}),cache:"no-store"});
