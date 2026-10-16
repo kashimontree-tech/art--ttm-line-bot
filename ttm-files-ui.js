@@ -16,7 +16,7 @@ async function folders(){
 }
 async function openFolder(f){
  ++folderRequest;
- const code=window.prompt("กรอกรหัสเข้าถึงคลังไฟล์ของ "+f.name);if(code===null)return;
+ const code=await window.ttmAsk("กรอกรหัสเข้าถึงคลังไฟล์ของ "+f.name,{secret:true});if(!code)return;
  try{
  const r=await fetch("/api/ttm-group/folder-files",{method:"POST",headers:{"Content-Type":"application/json","x-admin-pin":pin,"x-archive-pin":code.trim()},body:JSON.stringify({scope:f.scope}),cache:"no-store"});
  const data=await r.json();if(!r.ok)throw Error(data.error||"เปิดโฟลเดอร์ไม่สำเร็จ");
@@ -35,14 +35,14 @@ async function loadAlbums(){
 }
 $("fileCreateAlbum").onclick=async()=>{
  if(!scope)return;
- const name=window.prompt("ตั้งชื่ออัลบั้มใหม่");if(!name?.trim())return;
+ const name=await window.ttmAsk("ตั้งชื่ออัลบั้มใหม่");if(!name?.trim())return;
  try{await albumPost("/api/ttm-group/albums/create",{name:name.trim()});await loadAlbums();selectedFileAlbum=null;selectedFileDate=null;render()}
  catch(e){alert("สร้างอัลบั้มไม่ได้: "+e.message)}
 };
 window.addFileToAlbum=async function(f){
  if(!fileAlbums.length){alert("กรุณาสร้างอัลบั้มก่อน");return}
  const opts=fileAlbums.map((a,i)=>(i+1)+". "+a.name).join("\n");
- const chosen=window.prompt("เลือกเลขอัลบั้มสำหรับไฟล์นี้\n"+opts);
+ const chosen=await window.ttmAsk("เลือกเลขอัลบั้มสำหรับไฟล์นี้\n"+opts);
  if(chosen===null)return;const i=Number(chosen)-1;
  if(!Number.isInteger(i)||i<0||i>=fileAlbums.length){alert("เลขอัลบั้มไม่ถูกต้อง");return}
  try{await albumPost("/api/ttm-group/albums/add",{albumId:fileAlbums[i].id,fileId:f.id});await loadAlbums();render();$("loading").textContent="เพิ่มไฟล์ลงอัลบั้มสำเร็จ ✅"}
