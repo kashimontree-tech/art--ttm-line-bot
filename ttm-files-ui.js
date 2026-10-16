@@ -20,7 +20,8 @@ async function openFolder(f){
  try{
  const r=await fetch("/api/ttm-group/folder-files",{method:"POST",headers:{"Content-Type":"application/json","x-admin-pin":pin,"x-archive-pin":code.trim()},body:JSON.stringify({scope:f.scope}),cache:"no-store"});
  const data=await r.json();if(!r.ok)throw Error(data.error||"เปิดโฟลเดอร์ไม่สำเร็จ");
- scope=f.scope;pass=code.trim();archivePin=pass;files=data.files||[];selectedFileDate=null;selectedFileAlbum=null;await loadAlbums();
+ scope=f.scope;pass=code.trim();archivePin=pass;files=data.files||[];selectedFileDate=null;selectedFileAlbum=null;fileAlbums=[];
+ try{await loadAlbums()}catch(albumError){console.warn("File albums optional:",albumError)}
  $("fileFolders").replaceChildren();$("fileInside").classList.remove("hide");$("query").value="";$("type").value="";render();
  $("loading").textContent=f.name+" • "+files.length+" ไฟล์";
  }catch(e){alert(e.message)}
@@ -55,6 +56,6 @@ async function refreshCurrent(){
  if(!scope)return folders();
  const r=await fetch("/api/ttm-group/folder-files",{method:"POST",headers:{"Content-Type":"application/json","x-admin-pin":pin,"x-archive-pin":pass},body:JSON.stringify({scope}),cache:"no-store"});
  const d=await r.json();if(!r.ok){$("loading").textContent=d.error||"โหลดไม่สำเร็จ";return}
- files=d.files||[];await loadAlbums();render();$("loading").textContent="โหลดข้อมูลล่าสุด "+files.length+" ไฟล์";
+ files=d.files||[];try{await loadAlbums()}catch(e){console.warn("File album refresh:",e)}render();$("loading").textContent="โหลดข้อมูลล่าสุด "+files.length+" ไฟล์";
 }
 })();
