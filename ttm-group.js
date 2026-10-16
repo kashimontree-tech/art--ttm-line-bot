@@ -17,6 +17,42 @@ module.exports=function(app,{supabaseRequest,createSupabaseSignedUrl,getThaiPdfF
  async function groupName(scope){if(!scope.startsWith("group:"))return scope;const id=scope.slice(6);if(groupNames.has(id))return groupNames.get(id);try{const t=process.env.LINE_CHANNEL_ACCESS_TOKEN;if(!t)return scope;const r=await fetch("https://api.line.me/v2/bot/group/"+encodeURIComponent(id)+"/summary",{headers:{Authorization:"Bearer "+t}});if(!r.ok)return scope;const d=await r.json();const name=String(d.groupName||"").trim();if(name){groupNames.set(id,name);return name}}catch(e){console.error("Group name lookup:",e.message)}return scope}
  app.get("/api/ttm-group/photo-folders",auth,async(req,res)=>{try{const rows=await supabaseRequest("line_memories?select=scope_id,mime_type,storage_path&storage_path=not.is.null&order=created_at.desc&limit=1000",{method:"GET"});const counts=new Map();for(const f of rows||[])if(/^image\//i.test(f.mime_type||""))counts.set(f.scope_id,(counts.get(f.scope_id)||0)+1);const registered=await supabaseRequest("ttm_group_registry?select=scope_id,group_name",{method:"GET"});for(const g of registered||[])if(!counts.has(g.scope_id))counts.set(g.scope_id,0);const folders=[];for(const [scope,count] of counts){const g=(registered||[]).find(x=>x.scope_id===scope);folders.push({scope,name:g?.group_name||await groupName(scope),count})}res.set("Cache-Control","no-store").json({folders,limited:(rows||[]).length===1000})}catch(e){res.status(500).json({error:"Folder list unavailable"})}});
  app.post("/api/ttm-group/photos",auth,express.json({limit:"4kb"}),async(req,res)=>{const scope=String(req.body?.scope||"");if(!await allowed(scope,req.get("x-photo-pin")))return res.status(403).json({error:"รหัสของกลุ่มไม่ถูกต้อง หรือยังไม่ได้กำหนดรหัส"});try{const rows=await supabaseRequest("line_memories?select=id,file_name,mime_type,scope_id,created_at,storage_bucket,storage_path&scope_id=eq."+encodeURIComponent(scope)+"&storage_path=not.is.null&order=created_at.desc&limit=1000",{method:"GET"});res.set("Cache-Control","no-store").json({photos:(rows||[]).filter(x=>/^image\//i.test(x.mime_type||"")&&x.storage_bucket).map(x=>({id:x.id,name:x.file_name,date:x.created_at})),limited:(rows||[]).length===1000})}catch(e){res.status(500).json({error:"Could not list group photos"})}});
+ // Central TTM app archive overview. Uses the same Supabase records saved
+ // from all existing and newly joined LINE groups. Admin authorization required.
+ app.get("/api/ttm-group/archive-overview",auth,async(req,res)=>{
+   try{
+     const [groups,files,receipts]=await Promise.all([
+       supabaseRequest("ttm_group_registry?select=scope_id,group_name&limit=200",{method:"GET"}),
+       supabaseRequest("line_memories?select=scope_id,mime_type,storage_path&message_type=eq.file&order=created_at.desc&limit=1000",{method:"GET"}),
+       supabaseRequest("ttm_attachment_receipts?select=scope_id,status,media_type&limit=1000",{method:"GET"})
+     ]);
+     const map=new Map();
+     for(const g of groups||[]){
+       if(!String(g.scope_id||"").startsWith("group:"))continue;
+       map.set(g.scope_id,{name:g.group_name,scope:g.scope_id,images:0,files:0,audio:0,video:0,failed:0,pending:0});
+     }
+     for(const row of files||[]){
+       if(!map.has(row.scope_id)||!row.storage_path)continue;
+       const m=map.get(row.scope_id),type=String(row.mime_type||"");
+       if(type.startsWith("image/"))m.images++;
+       else if(type.startsWith("audio/"))m.audio++;
+       else if(type.startsWith("video/"))m.video++;
+       else m.files++;
+     }
+     for(const row of receipts||[]){
+       if(!map.has(row.scope_id))continue;
+       const m=map.get(row.scope_id);
+       if(row.status==="failed")m.failed++;
+       else if(row.status!=="stored")m.pending++;
+     }
+     res.set("Cache-Control","no-store").json({
+       groups:[...map.values()].sort((a,b)=>a.name.localeCompare(b.name,"th")),
+       filesLimited:(files||[]).length>=1000,
+       receiptsLimited:(receipts||[]).length>=1000,
+       note:"Count of indexed stored attachments, not a guarantee every LINE historical file was received"
+     });
+   }catch(e){console.error("TTM archive overview failed:",e);res.status(500).json({error:"Archive overview unavailable"});}
+ });
  app.get("/api/ttm-group/attachment-audit",auth,async(req,res)=>{
  try{
   const records=await supabaseRequest("ttm_attachment_receipts?select=line_message_id,scope_id,media_type,status,analysis_status,first_seen_at&order=first_seen_at.desc&limit=500",{method:"GET"});
