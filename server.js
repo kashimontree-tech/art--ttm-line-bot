@@ -178,6 +178,15 @@ app.post("/webhook", express.raw({ type: "application/json" }), async (req, res)
     for (const event of body.events || []) {
       const source = event.source || {};
       const capturedTarget = source.groupId || source.roomId || source.userId || null;
+      if (source.groupId) {
+        try {
+          // Persist the group folder immediately on join or any later webhook.
+          // A database-backed sequence assigns a unique next PIN only for new groups.
+          const groupSummary=await fetch("https://api.line.me/v2/bot/group/"+encodeURIComponent(source.groupId)+"/summary",{headers:{Authorization:"Bearer "+CHANNEL_ACCESS_TOKEN}});
+          const name=groupSummary.ok?String((await groupSummary.json()).groupName||""):"";
+          await supabaseRequest("rpc/ttm_register_group",{method:"POST",body:JSON.stringify({p_scope:"group:"+source.groupId,p_name:name}),headers:{"Content-Type":"application/json"}});
+        } catch (groupErr) { console.error("Register LINE group folder failed:",groupErr.message); }
+      }
       if (capturedTarget) {
         lastLinePushTarget = capturedTarget;
         persistLineTarget(
