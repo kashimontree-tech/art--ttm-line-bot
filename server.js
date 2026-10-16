@@ -813,6 +813,12 @@ async function processTextEvent(event) {
     await replyMessage(event.replyToken,named?"บัญชีที่พี่แท็กคือ "+honorificName(named)+" ครับ":"ยังไม่ทราบชื่อเรียกของบัญชีนี้ครับ");
     return;
   }
+  const memberAudit=require("./group-member-audit");
+  if(memberAudit.cmd(userText)){
+    const answer=await memberAudit.run({event,scopeId,supabaseRequest});
+    await replyMessage(event.replyToken,answer.slice(0,4800));
+    return;
+  }
   const meetingPdf=require("./meeting-pdf");
   if (meetingPdf.isRequest(userText)) {
     try {
