@@ -325,6 +325,20 @@ async function archiveMediaEvent(event) {
   } catch(error){console.error("Permanent "+type+" archive failed:",{messageId:event.message.id,error:String(error)});}
 }
 
+// Persistent intake ledger: a received event is NOT a successfully archived file.
+async function markAttachment(event,status,fileName=null,path=null,error=null){
+ const id=String(event?.message?.id||"");
+ if(!id)return;
+ const scopeId=getScopeId(event.source||{});
+ const payload={
+  line_message_id:id,scope_id:scopeId,media_type:String(event.message.type||"unknown"),
+  status,file_name:fileName,storage_path:path,error_detail:error?String(error).slice(0,400):null,
+  updated_at:new Date().toISOString()
+ };
+ await supabaseRequest("ttm_attachment_receipts?on_conflict=line_message_id",{
+  method:"POST",prefer:"resolution=merge-duplicates,return=minimal",body:JSON.stringify([payload])
+ });
+}
 async function processFileEvent(event, silent = false) {
   const source = event.source || {};
   const userId = source.userId || null;
@@ -341,6 +355,7 @@ async function processFileEvent(event, silent = false) {
     cacheLiveFile(scopeId,fileName,mime,bytes);
   } catch(error) {
     console.error("LINE original file download failed:",error);
+    try{await markAttachment(event,"failed",fileName,null,error.message)}catch(e){console.error("Receipt audit failed:",e)}
     if (!silent) await replyMessage(event.replyToken, `${displayName}ครับ ดาวน์โหลดต้นฉบับ “${fileName}” จาก LINE ไม่สำเร็จ จึงยังไม่ได้บันทึกครับ`);
     return;
   }
@@ -348,8 +363,10 @@ async function processFileEvent(event, silent = false) {
     stored = await uploadSupabaseFile(bytes,scopeId,event.message.id,fileName,mime);
     await saveFileMemory({scopeId,userId,displayName:rawName,source,fileName,lineMessageId:event.message.id,openaiFileId:null,mime,summary:"ต้นฉบับจาก LINE (รอวิเคราะห์)",storageBucket:stored.bucket,storagePath:stored.storagePath});
     indexed = true;
+    try{await markAttachment(event,"stored",fileName,stored.storagePath)}catch(e){console.error("Receipt audit update failed:",e)}
   } catch(error) {
     console.error("LINE file permanent archive/index failed:",error);
+    try{await markAttachment(event,"failed",fileName,stored?.storagePath,error.message)}catch(e){console.error("Receipt audit failed:",e)}
   }
   try {
     const uploaded = await uploadOpenAIFile(bytes,fileName,mime);
@@ -415,8 +432,10 @@ async function processImageEvent(event, silent = false) {
     try {
       storedImage = await uploadSupabaseFile(bytes, scopeId, event.message.id, imageFileName, mime);
       await saveFileMemory({ scopeId, userId, displayName: rawName, source, fileName: imageFileName, lineMessageId: event.message.id, openaiFileId: null, mime, summary: "รูปภาพ/เอกสารจาก LINE", storageBucket: storedImage.bucket, storagePath: storedImage.storagePath });
+      try{await markAttachment(event,"stored",imageFileName,storedImage.storagePath)}catch(e){console.error("Receipt audit update failed:",e)}
     } catch (storageError) {
       console.error("Permanent image storage error (non-blocking):", storageError);
+      try{await markAttachment(event,"failed",imageFileName,storedImage?.storagePath,storageError.message)}catch(e){console.error("Receipt audit failed:",e)}
     }
     const dataUrl = `data:${mime};base64,${bytes.toString("base64")}`;
     const answer = await askOpenAIImage(dataUrl, displayName);
@@ -430,6 +449,7 @@ async function processImageEvent(event, silent = false) {
     if (!silent) await replyMessage(event.replyToken, answer);
   } catch (e) {
     console.error("Image processing error:", e);
+    try{await markAttachment(event,"failed",null,null,e.message)}catch(auditError){console.error("Receipt audit failed:",auditError)}
     if (!silent) await replyMessage(event.replyToken, `${displayName}ครับ ตอนนี้อาร์ตอ่านรูปนี้ไม่สำเร็จ กรุณาลองส่งรูปใหม่อีกครั้งครับ`);
   }
 }
