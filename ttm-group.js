@@ -102,7 +102,7 @@ module.exports=function(app,{supabaseRequest,createSupabaseSignedUrl,getThaiPdfF
    if(!await allowed(scope,req.get("x-archive-pin")))return res.sendStatus(403);
    const albums=await supabaseRequest("ttm_group_albums?select=id&scope_id=eq."+encodeURIComponent(scope)+"&kind=eq."+kind+"&id=eq."+albumId,{method:"GET"});
    const found=await supabaseRequest("line_memories?select=id,mime_type,storage_path&scope_id=eq."+encodeURIComponent(scope)+"&id=eq."+fileId+"&limit=1",{method:"GET"});
-   if(!albums?.length||!found?.[0]?.storage_path||(/^image\\//i.test(found[0].mime_type||"")!==(kind==="photo")))return res.sendStatus(404);
+   if(!albums?.length||!found?.[0]?.storage_path||(String(found[0].mime_type||"").toLowerCase().startsWith("image/")!==(kind==="photo")))return res.sendStatus(404);
    await supabaseRequest("ttm_group_album_items?on_conflict=album_id,file_id",{method:"POST",prefer:"resolution=ignore-duplicates,return=minimal",body:JSON.stringify([{album_id:albumId,scope_id:scope,file_id:fileId}])});
    res.set("Cache-Control","no-store").json({ok:true});
   }catch(e){console.error("Add to group album:",e);res.status(500).json({error:"เพิ่มลงอัลบั้มไม่สำเร็จ"})}
