@@ -696,66 +696,7 @@ async function convertLatestExcelToPdf(scopeId, displayName) {
   const workbook = XLSX.read(source.bytes, { type: "buffer", cellDates: false });
   const thaiFont = await getThaiPdfFont();
 
-  const pdfBytes = await new Promise((resolve, reject) => {
-    try {
-      const doc = new PDFDocument({ size: "A4", layout: /meeting.?minutes|ประชุม/i.test(source.fileName) ? "portrait" : "landscape", margin: 42, autoFirstPage: false, bufferPages: true });
-      const chunks = [];
-      doc.on("data", chunk => chunks.push(chunk));
-      doc.on("end", () => resolve(Buffer.concat(chunks)));
-      doc.on("error", reject);
-      doc.registerFont("Thai", thaiFont);
-      const meetingDoc = /meeting.?minutes|ประชุม/i.test(source.fileName) || workbook.SheetNames.some(n=>/ข้อมูลการประชุม|มติที่ประชุม|เนื้อหาต้นฉบับ/.test(n));
-      const pageTheme = () => { const pw=doc.page.width; doc.rect(0,0,pw,91).fill("#f1f7f3"); doc.rect(0,0,7,91).fill("#176248"); doc.fillColor("#16543e").font("Thai").fontSize(17).text("TTM HOME DESIGN & BUILD-IN",54,19,{width:pw-100}); doc.fontSize(9).fillColor("#526b5c").text("ART TTM  •  PROFESSIONAL DOCUMENT",54,53,{width:pw-100}); doc.y=116; };
-
-      // Render every Excel column. Wide sheets are split into 8-column bands,
-      // with all rows repeated in each band so BOQ price columns are never lost.
-      for (const sheetName of workbook.SheetNames) {
-        const ws = workbook.Sheets[sheetName];
-        const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", raw: false, blankrows: false });
-        const maxCols = Math.max(1, ...rows.map(r => Array.isArray(r) ? r.length : 0));
-        const columnsPerPage = meetingDoc ? Math.max(8,maxCols) : 7;
-        for (let colStart = 0; colStart < maxCols; colStart += columnsPerPage) {
-          const colEnd = Math.min(maxCols, colStart + columnsPerPage);
-          const renderCols = colEnd - colStart;
-          const addTablePage = (continued = false) => {
-            doc.addPage();
-            pageTheme();
-            doc.font("Thai").fillColor("#14563e").fontSize(15).text(
-              String(sheetName) + (maxCols > columnsPerPage ? ` (คอลัมน์ ${colStart + 1}-${colEnd} จาก ${maxCols})` : "") + (continued ? " (ต่อ)" : ""),
-              { align: "left" }
-            );
-            doc.moveDown(0.65);
-            doc.font("Thai").fontSize(meetingDoc ? 11 : 9);
-          };
-          addTablePage();
-          const pageWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
-          const colWidths = renderCols===2 ? [pageWidth*0.28,pageWidth*0.72] : Array.from({length:renderCols},()=>pageWidth/renderCols);
-          for (const row of rows) {
-            const vals = Array.isArray(row) ? row : [];
-            const texts = Array.from({ length: renderCols }, (_, i) => String(vals[colStart + i] ?? ""));
-            doc.font("Thai").fontSize(meetingDoc ? 10.5 : 8.5);
-            const heights = texts.map((t,i) => doc.heightOfString(t || " ", { width: colWidths[i] - 16, lineGap: 3 }));
-            const rowH = Math.max(30, Math.max(...heights) + 16);
-            if(rowH > doc.page.height - 100) throw new Error("CELL_TOO_TALL_FOR_PDF: please export with a full spreadsheet renderer");
-            if (doc.y + rowH > doc.page.height - doc.page.margins.bottom) addTablePage(true);
-            const y = doc.y;
-            let x = doc.page.margins.left;
-            for (let i = 0; i < renderCols; i++) {
-              doc.rect(x,y,colWidths[i],rowH).fillAndStroke(row===rows[0]?"#176248":(rows.indexOf(row)%2?"#f4f8f5":"#ffffff"),"#cfdfd5");
-              doc.fillColor(row===rows[0]?"#ffffff":"#263c30").font("Thai").fontSize(meetingDoc?10.5:8.5).text(texts[i],x+8,y+8,{width:colWidths[i]-16,height:rowH-16,lineGap:3});
-              x += colWidths[i];
-            }
-            doc.y = y + rowH;
-          }
-        }
-      }
-      const pages=doc.bufferedPageRange().count;
-      for(let p=0;p<pages;p++){doc.switchToPage(p);doc.font("Thai").fontSize(9).fillColor("#5d7568").text("TTM • ตรวจสอบข้อมูลกับต้นฉบับก่อนใช้งาน",45,doc.page.height-35,{width:doc.page.width-170});doc.text("หน้า "+(p+1)+"/"+pages,doc.page.width-125,doc.page.height-35,{width:80,align:"right"});}
-      doc.end();
-    } catch (e) {
-      reject(e);
-    }
-  });
+  const pdfBytes = await require("./branded-pdf").renderBrandedExcelPdf(source.bytes, source.fileName, thaiFont);
 
   const stem = String(source.fileName || "converted").replace(/\.xlsx$/i, "");
   const outName = `${stem}.pdf`;
