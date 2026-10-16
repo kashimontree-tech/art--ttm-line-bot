@@ -847,16 +847,6 @@ async function processTextEvent(event) {
       }
     } catch (err) { console.error("Fallback tagged identity lookup failed",err); }
   }
-  const memberAudit=require("./group-member-audit");")+"(?=\\s|$)","iu").test(userText)
-        ));
-      });
-      if(matches.length===1){
-        const m=matches[0];
-        await replyMessage(event.replyToken,"คนที่พี่แท็กคือ"+honorificName(m.ttm_name||knownMemberAlias(m.display_name)||m.display_name)+"ครับ");
-        return;
-      }
-    }catch(err){console.error("Fallback tagged identity lookup failed",err);}
-  }
   const memberAudit=require("./group-member-audit");
   if(memberAudit.cmd(userText)){
     const answer=await memberAudit.run({event,scopeId,supabaseRequest});
