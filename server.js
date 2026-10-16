@@ -788,6 +788,17 @@ async function processTextEvent(event) {
     console.error("Supabase write error:", error);
   }
 
+  const meetingPdf=require("./meeting-pdf");
+  if (meetingPdf.isRequest(userText)) {
+    try {
+      const answer=await meetingPdf.handle({text:userText,scopeId,displayName,supabaseRequest,getThaiPdfFont,uploadSupabaseFile,createSupabaseSignedUrl,saveFileMemory});
+      await replyMessage(event.replyToken,answer);
+    } catch(error) {
+      console.error("Meeting PDF error:",error);
+      await replyMessage(event.replyToken,"ขออภัยครับ ยังสร้าง PDF ประชุมไม่สำเร็จ กรุณาลองอีกครั้งครับ");
+    }
+    return;
+  }
   if (voiceMeetings.pick(userText)) {
     try { const answer=await voiceMeetings.openForGroup(scopeId);await replyMessage(event.replyToken,answer); }
     catch(error){console.error("Voice meeting link error:",error);await replyMessage(event.replyToken,"ไม่สามารถสร้างลิงก์ประชุมได้ครับ");}
