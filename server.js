@@ -233,8 +233,8 @@ app.post("/webhook", express.raw({ type: "application/json" }), async (req, res)
       if(event.type==="join" && source.groupId && event.replyToken){
         try {
           await replyMessage(event.replyToken,
-            "สวัสดีครับ Art TTM พร้อมช่วยงานในกลุ่มนี้แล้วครับ\\n"+
-            "พิมพ์ ‘อาร์ต ความสามารถ’ เพื่อดูคำสั่ง หรือ ‘อาร์ต รายชื่อที่จำได้’ เพื่อตรวจชื่อที่บอทรู้จัก\\n"+
+            "สวัสดีครับ Art TTM พร้อมช่วยงานในกลุ่มนี้แล้วครับ\n"+
+            "พิมพ์ ‘อาร์ต ความสามารถ’ เพื่อดูคำสั่ง หรือ ‘อาร์ต รายชื่อที่จำได้’ เพื่อตรวจชื่อที่บอทรู้จัก\n"+
             "ข้อมูลและไฟล์ของกลุ่มนี้แยกจากกลุ่มอื่น ไม่มีการเปิดสิทธิ์ข้ามกลุ่มโดยอัตโนมัติครับ");
         }catch(joinErr){console.error("LINE group join welcome failed:",joinErr);}
       }
