@@ -45,9 +45,26 @@ module.exports=function(app,{supabaseRequest,createSupabaseSignedUrl,getThaiPdfF
    const types={pdf:"application/pdf",docx:"application/vnd.openxmlformats-officedocument.wordprocessingml.document",doc:"application/msword",xlsx:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",xls:"application/vnd.ms-excel",pptx:"application/vnd.openxmlformats-officedocument.presentationml.presentation",ppt:"application/vnd.ms-powerpoint",png:"image/png",jpg:"image/jpeg",jpeg:"image/jpeg",webp:"image/webp",heic:"image/heic",txt:"text/plain",csv:"text/csv",zip:"application/zip"};
    if(!types[ext])return res.status(415).json({error:"ประเภทไฟล์นี้ยังไม่รองรับ"});
    const mime=types[ext];
+   const kind=/^image\\//i.test(mime)?"photo":"file";
+   const albumId=String(req.body?.albumId||"");
+   if(albumId){
+    if(!/^[a-f0-9-]{36}$/i.test(albumId))return res.status(400).json({error:"รหัสอัลบั้มไม่ถูกต้อง"});
+    const matching=await supabaseRequest("ttm_group_albums?select=id&scope_id=eq."+encodeURIComponent(scope)+"&kind=eq."+kind+"&id=eq."+albumId+"&limit=1",{method:"GET"});
+    if(!matching?.length)return res.status(400).json({error:"อัลบั้มไม่อยู่ในกลุ่มหรือประเภทไฟล์นี้"});
+   }
    const saved=await uploadSupabaseFile(bytes,scope,crypto.randomUUID(),name,mime);
    await saveFileMemory({scopeId:scope,userId:null,displayName:"TTM Notes Import",source:{type:"group",groupId:scope.slice(6)},fileName:name,lineMessageId:null,openaiFileId:null,mime,summary:"นำเข้าจาก LINE Notes ผ่าน TTM Group โดยผู้ดูแล",storageBucket:saved.bucket,storagePath:saved.storagePath});
-   res.set("Cache-Control","no-store").json({ok:true,name,size:bytes.length});
+   let albumSaved=!albumId;
+   if(albumId){
+    try{
+     const rows=await supabaseRequest("line_memories?select=id&scope_id=eq."+encodeURIComponent(scope)+"&storage_path=eq."+encodeURIComponent(saved.storagePath)+"&limit=1",{method:"GET"});
+     const fileId=rows?.[0]?.id;
+     if(!fileId)throw new Error("Saved file memory record not found");
+     await supabaseRequest("ttm_group_album_items?on_conflict=album_id,file_id",{method:"POST",prefer:"resolution=ignore-duplicates,return=minimal",body:JSON.stringify([{album_id:albumId,scope_id:scope,file_id:fileId}])});
+     albumSaved=true;
+    }catch(albumError){console.error("LINE Notes album assignment failed:",albumError)}
+   }
+   res.set("Cache-Control","no-store").json({ok:true,name,size:bytes.length,albumSaved,warning:albumSaved?null:"ไฟล์อยู่ในคลังตามวันที่แล้ว แต่เพิ่มลงอัลบั้มไม่สำเร็จ กรุณาเปิดคลังเพื่อจัดเข้าอัลบั้ม"});
   }catch(err){console.error("LINE Notes import failed:",err);res.status(500).json({error:"บันทึกไฟล์ไม่สำเร็จ กรุณาลองใหม่หรือตรวจสอบพื้นที่จัดเก็บ"})}
  });
 
