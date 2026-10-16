@@ -925,7 +925,7 @@ async function processTextEvent(event) {
   // Example: Benz says "บอกพี่เบียร์หน่อย" => address Beer, not Benz.
   let intendedRecipient = null;
   try {
-    const recipientMatch=String(userText||"").match(/(?:บอก|ตอบ|อธิบาย|แจ้ง|พูดกับ|ส่งให้|เล่าให้|สรุปให้)\\s*(?:กับ|ให้)?\\s*พี่([ก-๙a-zA-Z]{1,30})/u);
+    const recipientMatch=String(userText||"").match(/(?:บอก|ตอบ|อธิบาย|แจ้ง|พูดกับ|ส่งให้|เล่าให้|สรุปให้)\s*(?:กับ|ให้)?\s*พี่([ก-๙a-zA-Z]{1,30})/u);
     if(recipientMatch){
       const candidates=(await supabaseRequest("line_members?select=ttm_name&limit=250",{method:"GET"}))||[];
       const target=recipientMatch[1];
@@ -959,7 +959,7 @@ async function processTextEvent(event) {
 
   // For requests addressed to another named member, greet that recipient.
   if(intendedRecipient && typeof answer==="string"){
-    answer=answer.replace(/^\\s*พี่[^\\s,:：\\n]{1,35}(?:ครับ|ค่ะ)?[,:：\\s]*/u,"").trim();
+    answer=answer.replace(/^\s*พี่[^\s,:：\n]{1,35}(?:ครับ|ค่ะ)?[,:：\s]*/u,"").trim();
     answer=intendedRecipient+"ครับ "+answer;
   } else {
     answer=enforceSenderNickname(answer,rawDisplayName,preferredName);
