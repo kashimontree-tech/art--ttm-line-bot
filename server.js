@@ -849,7 +849,7 @@ async function processTextEvent(event) {
   }
   // Transparent capability report. Never imply access to all group members,
   // unrestricted ChatGPT tools, or autonomous actions from this bot.
-  if (/^(?:@?อาร์ต|art(?:\\s*ttm)?)\\s*(?:ความสามารถ|ทำอะไรได้บ้าง|สถานะระบบ|ช่วยเหลือ|คำสั่ง)$/iu.test(String(userText||"").trim())) {
+  if (/^(?:@?อาร์ต|art(?:\s*ttm)?)\s*(?:ความสามารถ|ทำอะไรได้บ้าง|สถานะระบบ|ช่วยเหลือ|คำสั่ง)$/iu.test(String(userText||"").trim())) {
     await replyMessage(event.replyToken, [
       "🤖 Art TTM — ความสามารถใน LINE กลุ่ม",
       "• เรียกสมาชิกด้วยชื่อเล่นที่บันทึกตาม LINE User ID",
@@ -860,7 +860,7 @@ async function processTextEvent(event) {
       "",
       "ข้อจำกัด: อ่านย้อนหลังได้เฉพาะข้อมูลที่บอทเก็บไว้ ไม่เห็นสมาชิก LINE ทั้งหมดโดยอัตโนมัติ และไม่สามารถใช้ทุกเครื่องมือเหมือน ChatGPT ส่วนตัว",
       "ส่งคำสั่งที่ต้องการมาได้ครับ งานที่ต้องใช้สิทธิ์หรือมีค่าใช้จ่ายเพิ่มเติมจะขออนุมัติก่อน"
-    ].join("\\n"));
+    ].join("\n"));
     return;
   }
   const memberAudit=require("./group-member-audit");
