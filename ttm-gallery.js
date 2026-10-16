@@ -21,9 +21,9 @@ async function showFolders(){
   for(const folder of unique){
    const b=document.createElement("button");
    b.textContent="📁 "+folder.name+" ("+folder.count+" รูป)";
-   b.onclick=()=>{
-    const code=window.prompt("กรอกรหัสผ่านเพื่อเปิดโฟลเดอร์ "+folder.name);
-    if(code!==null&&code.trim())openFolder(folder,code.trim());
+   b.onclick=async()=>{
+    const code=await window.ttmAsk("กรอกรหัสผ่านเพื่อเปิดโฟลเดอร์ "+folder.name,{secret:true});
+    if(code)await openFolder(folder,code);
    };
    fragment.append(b);
   }
@@ -51,7 +51,7 @@ async function loadAlbums(){
  albums=r.albums||[];
 }
 async function createAlbum(){
- const name=window.prompt("ชื่ออัลบั้มใหม่ในกลุ่ม "+active.name);
+ const name=await window.ttmAsk("ชื่ออัลบั้มใหม่ในกลุ่ม "+active.name);
  if(!name||!name.trim())return;
  try{await post("/api/ttm-group/albums/create",{scope:active.scope,kind:"photo",name:name.trim()},photoPin);await loadAlbums();selectedDay=null;selectedAlbum=null;renderPhotos()}
  catch(err){alert("สร้างอัลบั้มไม่ได้: "+err.message)}
@@ -59,7 +59,7 @@ async function createAlbum(){
 async function addToAlbum(item){
  if(!albums.length){alert("กรุณาสร้างอัลบั้มก่อน");return}
  const options=albums.map((a,i)=>(i+1)+". "+a.name).join("\n");
- const choice=window.prompt("เลือกเลขอัลบั้มที่จะเพิ่มรูปนี้ (ไม่ลบจากวันที่)\\n"+options);
+ const choice=await window.ttmAsk("เลือกเลขอัลบั้มที่จะเพิ่มรูปนี้ (ไม่ลบจากวันที่)\n"+options);
  if(choice===null)return;
  const i=Number(choice)-1;
  if(!Number.isInteger(i)||i<0||i>=albums.length){alert("หมายเลขอัลบั้มไม่ถูกต้อง");return}
