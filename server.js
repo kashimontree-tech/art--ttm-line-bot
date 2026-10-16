@@ -349,6 +349,16 @@ async function markAttachment(event,status,fileName=null,path=null,error=null){
   method:"POST",prefer:"resolution=merge-duplicates,return=minimal",body:JSON.stringify([payload])
  });
 }
+async function markImageAnalysis(event,state,note){
+ try{
+  const id=String(event?.message?.id||"");
+  if(!id)return;
+  await supabaseRequest("ttm_attachment_receipts?line_message_id=eq."+encodeURIComponent(id),{
+   method:"PATCH",prefer:"return=minimal",
+   body:JSON.stringify({analysis_status:state,analysis_note:String(note||"").slice(0,450),updated_at:new Date().toISOString()})
+  });
+ }catch(e){console.error("Vision audit failed:",e)}
+}
 async function processFileEvent(event, silent = false) {
   const source = event.source || {};
   const userId = source.userId || null;
@@ -449,6 +459,7 @@ async function processImageEvent(event, silent = false) {
     }
     const dataUrl = `data:${mime};base64,${bytes.toString("base64")}`;
     const answer = await askOpenAIImage(dataUrl, displayName);
+    await markImageAnalysis(event,"read","AI image description completed; verify individual slip details before accounting");
 
     try {
       await saveMessage({ lineMessageId: event.message.id || null, scopeId, userId, displayName: rawName, groupId: source.groupId || null, messageType: "image", text: "[รูปภาพ] " + answer, role: "user" });
@@ -459,6 +470,7 @@ async function processImageEvent(event, silent = false) {
     if (!silent) await replyMessage(event.replyToken, answer);
   } catch (e) {
     console.error("Image processing error:", e);
+    await markImageAnalysis(event,"failed",e.message);
     if(!storedImage?.storagePath)try{await markAttachment(event,"failed",null,null,e.message)}catch(auditError){console.error("Receipt audit failed:",auditError)}
     if (!silent) await replyMessage(event.replyToken, `${displayName}ครับ ตอนนี้อาร์ตอ่านรูปนี้ไม่สำเร็จ กรุณาลองส่งรูปใหม่อีกครั้งครับ`);
   }
