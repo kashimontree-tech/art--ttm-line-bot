@@ -17,7 +17,7 @@
   }catch(err){$("notesStatus").textContent="โหลดรายชื่อกลุ่มไม่สำเร็จ: "+err.message}
   finally{fetching=false}
  };
- const fileKind=file=>/\\.(png|jpg|jpeg|webp|heic)$/i.test(file.name)?"photo":"file";
+ const fileKind=file=>["png","jpg","jpeg","webp","heic"].includes(String(file.name||"").split(".").pop().toLowerCase())?"photo":"file";
  const getKind=()=>{
   const selected=[...$("notesFiles").files];
   if(!selected.length)return null;
