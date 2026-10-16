@@ -740,14 +740,18 @@ async function processTextEvent(event) {
   const scopeId = getScopeId(source);
   const sourceType = source.type || "unknown";
   const userText = event.message.text;
-  const rawDisplayName = await getLineDisplayName(source, userId);
-  const displayName = honorificName(rawDisplayName);
+  const lineProfile = await getLineProfile(source,userId);
+  const rawDisplayName = lineProfile?.displayName||null;
+  const savedMember = userId ? await supabaseRequest("line_members?select=ttm_name&line_user_id=eq."+encodeURIComponent(userId)+"&limit=1",{method:"GET"}).catch(()=>[]) : [];
+  const preferredName=String(savedMember?.[0]?.ttm_name||"").trim();
+  const addressedName=preferredName||rawDisplayName;
+  const displayName = honorificName(addressedName);
   let mentionedMembers = [];
 
   try {
     mentionedMembers = await captureMentionedMembers(event, scopeId);
     await upsertMember({
-      scopeId, userId, displayName: rawDisplayName, sourceType,
+      scopeId, userId, displayName: rawDisplayName, pictureUrl:lineProfile?.pictureUrl||null, sourceType,
       groupId: source.groupId || null,
       roomId: source.roomId || null,
     });
@@ -766,6 +770,18 @@ async function processTextEvent(event) {
     console.error("Supabase write error:", error);
   }
 
+  // Any member can explicitly set their preferred name, linked to their LINE user ID.
+  const requestedName=String(userText||"").match(/^(?:@?อาร์ต[\\s,:-]*)?(?:เรียก(?:ผม|ฉัน|พี่|หนู|เรา)ว่า|จำชื่อ(?:ผม|ฉัน|พี่)ว่า)\\s*([^\\n]{1,40})$/u);
+  if(requestedName && userId){
+    const nickname=requestedName[1].trim().replace(/[.!?。]+$/,"");
+    if(nickname.length>=1 && nickname.length<=40){
+      try{
+        await supabaseRequest("line_members?line_user_id=eq."+encodeURIComponent(userId),{method:"PATCH",body:JSON.stringify({ttm_name:nickname,updated_at:new Date().toISOString()})});
+        await replyMessage(event.replyToken,"รับทราบครับ ต่อไปอาร์ตจะเรียกสมาชิกบัญชีนี้ว่า "+honorificName(nickname)+" ครับ");
+      }catch(err){console.error("Nickname save failed:",err);await replyMessage(event.replyToken,"ยังบันทึกชื่อเรียกไม่ได้ครับ กรุณาลองอีกครั้ง");}
+      return;
+    }
+  }
   const meetingPdf=require("./meeting-pdf");
   if (meetingPdf.isRequest(userText)) {
     try {
@@ -858,6 +874,10 @@ function getScopeId(source) {
 }
 
 async function getLineDisplayName(source, userId) {
+  const profile=await getLineProfile(source,userId);
+  return profile?.displayName||null;
+}
+async function getLineProfile(source, userId) {
   if (!userId) return null;
   try {
     let url;
@@ -876,7 +896,7 @@ async function getLineDisplayName(source, userId) {
       return null;
     }
     const data = await response.json();
-    return data.displayName || null;
+    return {displayName:data.displayName||null,pictureUrl:data.pictureUrl||null};
   } catch (error) {
     console.error("LINE member profile exception:", error);
     return null;
@@ -889,12 +909,14 @@ async function captureMentionedMembers(event, scopeId) {
   const captured = [];
   for (const mention of mentionees) {
     if (mention.type !== "user" || !mention.userId) continue;
-    const name = await getLineDisplayName(source, mention.userId);
+    const profile = await getLineProfile(source, mention.userId);
+    const name=profile?.displayName;
     if (!name) continue;
     await upsertMember({
       scopeId,
       userId: mention.userId,
       displayName: name,
+      pictureUrl: profile.pictureUrl||null,
       sourceType: source.type || "unknown",
       groupId: source.groupId || null,
       roomId: source.roomId || null,
@@ -970,6 +992,7 @@ async function upsertMember({
   scopeId,
   userId,
   displayName,
+  pictureUrl,
   sourceType,
   groupId,
   roomId,
@@ -986,6 +1009,7 @@ async function upsertMember({
         user_id: userId,
         scope_id: scopeId,
         display_name: displayName,
+        picture_url: pictureUrl || null,
         source_type: sourceType,
         group_id: groupId,
         room_id: roomId,
