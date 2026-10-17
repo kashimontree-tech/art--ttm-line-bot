@@ -22,12 +22,10 @@ module.exports = async function editLastLineImage({scopeId,instruction,displayNa
   if (wantsLogo) {
     const rows=await supabaseRequest("line_memories?select=file_name,mime_type,storage_bucket,storage_path,text_content,created_at"+
       "&scope_id=eq."+encodeURIComponent(scopeId)+"&storage_path=not.is.null&order=created_at.desc&limit=150",{method:"GET"});
-    const candidates=(rows||[]).filter(x=>/^image\\/(png|jpeg|webp)$/i.test(x.mime_type||"")&&x.storage_bucket&&x.storage_path);
-    // Explicitly labeled logo takes precedence. Otherwise use the most recently
-    // archived image if another source image exists.
+    const candidates=(rows||[]).filter(x=>/^image\/(png|jpeg|webp)$/i.test(x.mime_type||"")&&x.storage_bucket&&x.storage_path);
+    // Only an explicitly labeled logo may be used as a logo reference.
     const named=candidates.find(x=>/ttm.*(?:logo|โลโก้)|(?:logo|โลโก้).*ttm|logo|โลโก้/i.test((x.file_name||"")+" "+(x.text_content||"")));
-    const latestOther=candidates.find(x=>x.file_name!==source.fileName);
-    const selected=named||latestOther;
+    const selected=named;
     if (!selected) return {text:(displayName||"พี่")+"ครับ พบรูปสำหรับแก้ไขแล้ว แต่ยังหาไฟล์โลโก้ TTM แยกจากรูปต้นฉบับในกลุ่มนี้ไม่พบ กรุณาส่งรูปโลโก้เข้ากลุ่มอีกครั้งครับ"};
     logo={fileName:selected.file_name,mime:selected.mime_type,bytes:await downloadSupabaseFile(selected.storage_bucket,selected.storage_path)};
   }
