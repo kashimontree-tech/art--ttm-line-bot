@@ -763,6 +763,16 @@ function wantsExcelConversion(text) {
   return /(แปลง|ทำ|เปลี่ยน).*(excel|xlsx|เอ็กเซล)|(?:excel|xlsx|เอ็กเซล).*(แปลง|ทำ|เปลี่ยน)/i.test(text || "");
 }
 
+function knownTtmWebLinkReply(text, displayName) {
+  const t = String(text || "");
+  // URL requests are not file-attachment requests. Do not fall back to a
+  // different archived file when somebody asks for the quotation website.
+  if (!/(?:เว็บ|เว็ป|เวป|เว็บไซต์|web|website|ลิงก์|link)/iu.test(t)) return null;
+  if (!/(?:ใบเสนอราคา|เสนอราคา|quotation)/iu.test(t)) return null;
+  if (!/(?:ส่ง|ขอ|เอา|เปิด|เข้า|ลิงก์|link|เว็บ|web|website|กลับมา|ให้)/iu.test(t)) return null;
+  return `${displayName || "พี่"}ครับ เว็บใบเสนอราคา TTM HOME DESIGN & BUILD-IN ใช้ลิงก์นี้ครับ ✅\nhttps://ttm-quotation-online.onrender.com/\nเปิดผ่าน Safari หรือ LINE ได้เลยครับ หากต้องการส่งให้สมาชิกในกลุ่ม สามารถแชร์ลิงก์นี้ได้ทันทีครับ`;
+}
+
 async function processTextEvent(event) {
   const source = event.source || {};
   const userId = source.userId || null;
@@ -1020,6 +1030,7 @@ async function processTextEvent(event) {
          : "ข้อความนี้ไม่มี LINE User ID จาก LINE กรุณาส่งคำสั่งผ่านแชตกับบอทหรือกลุ่มที่บอทมีสิทธิ์อ่านข้อมูลสมาชิกครับ") : null) ||
       (/(?:ทดสอบ\s*TTM\s*Group|รายงานปัญหา\s*TTM\s*Group|ข้อเสนอแนะ\s*TTM\s*Group)/i.test(userText) ? `${displayName||"พี่"}ครับ อาร์ตบันทึกผลทดสอบ TTM Group จาก LINE กลุ่มนี้ไว้แล้วครับ ขอบคุณสำหรับข้อมูลครับ` : null) ||
       directIdentityReply(userText, displayName) ||
+      knownTtmWebLinkReply(userText, displayName) ||
       (require("./archive-search").isFileCatalogRequest(userText) ? await require("./archive-search").listFileCatalog({scopeId,displayName,supabaseRequest}) : null) ||
       (require("./material-research").isMaterialResearch(userText) ? await require("./material-research").researchMaterials(userText,{key:CLEAN_OPENAI_KEY,model:OPENAI_MODEL,displayName}) : null) ||
       await maybeReturnKnownFile(userText, scopeId, displayName, event.source?.userId) ||
