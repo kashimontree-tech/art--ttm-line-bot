@@ -19,7 +19,7 @@ This release adds durable, group-scoped jobs for document creation, image genera
 
 ## Validation
 
-Run `node --test assistant-context.test.js tools.test.js`. Tests cover real DOCX/PPTX/XLSX containers, Thai content and numeric values, MP4 generation, routing, scoped reads, independent context failures, event deduplication, failed delivery, silent processing and internal test isolation. Syntax checks cover every root JavaScript module. A sample Thai PDF was rendered and visually inspected. These local tests do not certify model accuracy or LINE delivery. Production deployment and smoke tests are tracked separately.
+Run `node --test assistant-context.test.js tools.test.js`. Tests cover real DOCX/PPTX/XLSX containers, Thai content and numeric values, MP4 generation, routing, scoped reads, independent context failures, event deduplication, failed delivery, silent processing and internal test isolation. Syntax checks cover every root JavaScript module. A sample Thai PDF was rendered and visually inspected. These local tests do not certify model accuracy or LINE delivery. Production smoke tests created and downloaded Thai DOCX/PDF files, performed public web research, and generated a narrated MP4. Audio transcription also ran end to end; its first result used Romanized Thai, so Thai prompting and the default transcription model were strengthened and require retesting. No smoke-test result was sent to a LINE recipient.
 
 ## Current boundaries
 

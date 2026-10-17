@@ -22,7 +22,7 @@ function setup(app,{supabaseRequest}) {
   try {
    const mime=(req.headers["content-type"]||"audio/webm").split(";")[0];
    const ext=mime==="audio/mp4"?"m4a":mime==="audio/ogg"?"ogg":"webm";
-   const fd=new FormData();fd.append("model",process.env.OPENAI_TRANSCRIBE_MODEL||"gpt-4o-mini-transcribe");fd.append("language","th");fd.append("file",new Blob([req.body],{type:mime}),"meeting."+ext);
+   const fd=new FormData();fd.append("model",process.env.OPENAI_TRANSCRIBE_MODEL||"gpt-4o-transcribe");fd.append("language","th");fd.append("file",new Blob([req.body],{type:mime}),"meeting."+ext);
    const r=await fetch("https://api.openai.com/v1/audio/transcriptions",{method:"POST",headers:{Authorization:"Bearer "+process.env.OPENAI_API_KEY},body:fd});
    if(!r.ok)throw Error("ถอดเสียงไม่สำเร็จ: "+r.status+" "+(await r.text()).slice(0,300));
    const text=String((await r.json()).text||"").trim();
@@ -43,7 +43,7 @@ function setup(app,{supabaseRequest}) {
   s.busy=true;
   try{
     const fd=new FormData();
-    fd.append("model",process.env.OPENAI_TRANSCRIBE_MODEL||"gpt-4o-mini-transcribe");
+    fd.append("model",process.env.OPENAI_TRANSCRIBE_MODEL||"gpt-4o-transcribe");
     fd.append("language","th");
     fd.append("file",new Blob([bytes],{type:allowed[ext]}),"meeting."+ext);
     const r=await fetch("https://api.openai.com/v1/audio/transcriptions",{method:"POST",headers:{Authorization:"Bearer "+process.env.OPENAI_API_KEY},body:fd});

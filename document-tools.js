@@ -47,7 +47,7 @@ async function renderDocument(raw,format,{thaiFont}={}) {
   if(format==="docx"){
     const children=[new Paragraph({text:spec.title,heading:HeadingLevel.TITLE})];
     for(const section of spec.sections){
-      if(section.heading)children.push(new Paragraph({text:section.heading,heading:HeadingLevel.HEADING_1}));
+      if(section.heading && section.heading.trim()!==spec.title.trim())children.push(new Paragraph({text:section.heading,heading:HeadingLevel.HEADING_1}));
       for(const line of section.text.split("\n"))children.push(new Paragraph({children:[new TextRun({text:line,font:"Noto Sans Thai",size:24})],spacing:{after:120}}));
     }
     for(const sheet of spec.sheets){
@@ -90,7 +90,7 @@ async function renderDocument(raw,format,{thaiFont}={}) {
       doc.on("data",c=>chunks.push(c));doc.on("error",reject);doc.on("end",()=>resolve(Buffer.concat(chunks)));
       doc.font(thaiFont).fontSize(21).fillColor("#17533D").text(spec.title);doc.moveDown();
       for(const section of spec.sections){
-        if(section.heading)doc.fontSize(15).fillColor("#17533D").text(section.heading);
+        if(section.heading && section.heading.trim()!==spec.title.trim())doc.fontSize(15).fillColor("#17533D").text(section.heading);
         doc.fontSize(12).fillColor("#202C25").text(section.text,{lineGap:5});doc.moveDown();
       }
       for(const sheet of spec.sheets){doc.fontSize(15).text(sheet.name);for(const row of sheet.rows)doc.fontSize(10).text(row.map(String).join("  |  "),{lineGap:4});doc.moveDown();}
