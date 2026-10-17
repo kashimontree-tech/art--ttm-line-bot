@@ -956,6 +956,35 @@ async function processTextEvent(event) {
   }
   if (!isArtInvoked(event)) return; // Do not interrupt ordinary group conversation.
 
+  // Image-edit requests must produce an image, not a conversational promise.
+  // Images are resolved only from this LINE group's own archive.
+  const imageEditCommand = /(?:แก้|ปรับ|ตกแต่ง|แต่ง|จัดหน้า|ลบ|เพิ่ม|เปลี่ยน|ทำให้).{0,65}(?:รูป|ภาพ|โลโก้|สี|พื้นหลัง|แบบ)|(?:รูป|ภาพ).{0,45}(?:สวย|แก้|ปรับ|แต่ง)/iu.test(String(userText||""));
+  if (imageEditCommand) {
+    try {
+      const result=await require("./line-image-editor")({
+        scopeId,instruction:userText,displayName,liveFileCache,supabaseRequest,
+        downloadSupabaseFile,uploadSupabaseFile,saveFileMemory,createSupabaseSignedUrl,
+        openaiKey:CLEAN_OPENAI_KEY
+      });
+      if (result.url) {
+        // LINE can display the returned signed HTTPS PNG directly.
+        const rr=await fetch("https://api.line.me/v2/bot/message/reply",{
+          method:"POST",
+          headers:{"Content-Type":"application/json",Authorization:"Bearer "+CLEAN_LINE_TOKEN},
+          body:JSON.stringify({replyToken:event.replyToken,messages:[
+            {type:"image",originalContentUrl:result.url,previewImageUrl:result.url},
+            {type:"text",text:result.text.slice(0,4800)}
+          ]})
+        });
+        if(!rr.ok)throw new Error("LINE image reply "+rr.status+": "+(await rr.text()).slice(0,300));
+      } else await replyMessage(event.replyToken,result.text);
+    } catch(editError) {
+      console.error("LINE image edit failed:",String(editError));
+      try {await replyMessage(event.replyToken,(displayName||"พี่")+"ครับ ยังแก้รูปไม่สำเร็จ ระบบสร้างภาพมีข้อผิดพลาด กรุณาลองอีกครั้งภายหลังครับ");}catch(replyErr){console.error("LINE edit error reply failed:",String(replyErr))}
+    }
+    return;
+  }
+
   let recentContext = "";
   let memberContext = "";
   let longTermMemory = "";
