@@ -1,21 +1,21 @@
 {
   "name": "TTM HOME DESIGN Quotation",
   "short_name": "TTM Quote",
-  "start_url": "/?app_icon=20261017-new7",
+  "start_url": "/?app_icon=black-gold-20261017",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#07344b",
   "icons": [
     {
-      "src": "/logo.jpg?ttmquote=20261017-new7",
+      "src": "/ttm-black-gold-20261017-192.png",
       "sizes": "192x192",
-      "type": "image/jpeg",
+      "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/logo.jpg?ttmquote=20261017-new7",
+      "src": "/ttm-black-gold-20261017-512.png",
       "sizes": "512x512",
-      "type": "image/jpeg",
+      "type": "image/png",
       "purpose": "any"
     }
   ]
