@@ -17,7 +17,36 @@ el('#addBtn').onclick=()=>{data.items.push({desc:'',unit:'งาน',qty:1,price
 el('#saveBtn').onclick=()=>{if(!data.number.trim()){msg('กรุณากรอกเลขที่ใบเสนอราคา');return}try{let saved=list();saved[data.number.trim()]=JSON.parse(JSON.stringify(data));localStorage.setItem(KEY,JSON.stringify(saved));persist();refreshList();el('#savedList').value=data.number.trim();msg('บันทึกเลขที่ '+data.number+' ในเครื่องนี้สำเร็จ')}catch(e){msg('บันทึกไม่ได้: '+e.message)}};
 el('#loadBtn').onclick=()=>{let k=el('#savedList').value;if(!k)return msg('กรุณาเลือกใบเสนอราคา');data=list()[k];persist();render();msg('เปิดเลขที่ '+k+' แล้ว')};el('#deleteBtn').onclick=()=>{let k=el('#savedList').value;if(!k)return msg('กรุณาเลือกรายการที่จะลบ');if(!confirm('ยืนยันลบ '+k+' ?'))return;let saved=list();delete saved[k];localStorage.setItem(KEY,JSON.stringify(saved));refreshList();msg('ลบรายการแล้ว')};
 el('#printBtn').onclick=()=>{preview();window.print()};
-el('#pdfBtn').onclick=async()=>{preview();if(typeof html2pdf==='undefined'){msg('โหลดตัวสร้าง PDF ไม่ได้ กรุณาเปิดเว็บใน Safari และตรวจอินเทอร์เน็ต');return}const btn=el('#pdfBtn');btn.disabled=true;btn.textContent='กำลังสร้าง PDF...';msg('กำลังสร้าง PDF');try{const paper=el('#preview');const hasDescription=(data.items||[]).some(x=>String(x.desc||'').trim());if(!hasDescription){msg('ยังไม่มีรายละเอียดรายการงาน กรุณากรอกรายการก่อนสร้าง PDF');return}const filename=(data.number||'TTM_Quotation').replace(/[^a-zA-Z0-9_-]/g,'_')+'.pdf';await document.fonts.ready;const source=paper.cloneNode(true);source.removeAttribute('id');source.classList.add('pdf-export');source.style.cssText='display:block!important;position:fixed!important;left:0!important;top:0!important;width:750px!important;max-width:750px!important;min-width:750px!important;overflow:visible!important;z-index:-1!important;opacity:1!important;background:#fff!important;font-size:13px!important;box-sizing:border-box!important';source.querySelectorAll('*').forEach(e=>{if(e.matches('.infogrid'))e.style.gridTemplateColumns='1fr 190px';if(e.matches('.qtable')){e.style.width='100%';e.style.tableLayout='fixed'};if(e.matches('.notes'))e.style.whiteSpace='pre-wrap'});document.body.appendChild(source);try{await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));const itemCount=source.querySelectorAll('tbody tr').length;if(!itemCount||!source.innerText.includes(data.items[0].desc.split('\\n')[0].slice(0,10)))throw Error('รายละเอียดไม่แสดงในเอกสาร โปรดลองรีเฟรชเว็บ');await html2pdf().set({margin:[8,8,8,8],filename,image:{type:'jpeg',quality:.98},html2canvas:{scale:1.5,useCORS:true,backgroundColor:'#ffffff',scrollY:0,scrollX:0,windowWidth:1000},jsPDF:{unit:'mm',format:'a4',orientation:'portrait'},pagebreak:{mode:['css','legacy'],avoid:['tr','.sign']}}).from(source).save()}finally{source.remove()}msg('ดาวน์โหลด PDF พร้อมรายละเอียด '+data.items.length+' รายการแล้ว กรุณาตรวจไฟล์')}catch(e){msg('สร้าง PDF ไม่สำเร็จ: '+e.message)}finally{btn.disabled=false;btn.textContent='ดาวน์โหลด PDF'}};
+el('#pdfBtn').onclick=async()=>{
+ preview();
+ const btn=el('#pdfBtn');
+ if(typeof html2pdf==='undefined'){msg('ไม่สามารถโหลดเครื่องมือ PDF ได้ ให้เปิดเว็บใน Safari แล้วลองใหม่');return}
+ const rows=(data.items||[]).filter(i=>String(i.desc||'').trim());
+ if(!rows.length){msg('ยังไม่มีรายละเอียดรายการ โปรดกรอกรายการก่อนสร้าง PDF');return}
+ btn.disabled=true;btn.textContent='กำลังสร้าง PDF...';msg('กำลังสร้าง PDF กรุณารอสักครู่');
+ let source=null;
+ try{
+  await document.fonts.ready;
+  source=el('#preview').cloneNode(true);
+  source.removeAttribute('id');
+  source.style.cssText='display:block!important;position:absolute!important;left:0!important;top:'+window.scrollY+'px!important;width:750px!important;min-width:750px!important;max-width:750px!important;height:auto!important;overflow:visible!important;opacity:1!important;visibility:visible!important;z-index:2147483647!important;background:#ffffff!important;color:#000!important;font-size:13px!important;box-shadow:none!important;margin:0!important;transform:none!important;';
+  source.querySelectorAll('.infogrid').forEach(e=>e.style.gridTemplateColumns='1fr 190px');
+  source.querySelectorAll('table').forEach(e=>{e.style.width='100%';e.style.tableLayout='fixed'});
+  document.body.appendChild(source);
+  await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+  if(source.getBoundingClientRect().height<150||source.querySelectorAll('tbody tr').length!==data.items.length)throw Error('เอกสารยังไม่แสดงข้อมูลครบ');
+  const filename=(data.number||'TTM_Quotation').replace(/[^a-zA-Z0-9_-]/g,'_')+'.pdf';
+  const job=html2pdf().set({margin:[8,8,8,8],filename,image:{type:'jpeg',quality:.98},html2canvas:{scale:1.65,useCORS:true,backgroundColor:'#ffffff',scrollY:0,scrollX:0,windowWidth:1000},jsPDF:{unit:'mm',format:'a4',orientation:'portrait'},pagebreak:{mode:['css','legacy'],avoid:['tr','.sign']}}).from(source).toCanvas();
+  const canvas=await job.get('canvas');
+  if(!canvas||canvas.width<300||canvas.height<200)throw Error('จับภาพเอกสารไม่สำเร็จ');
+  const ctx=canvas.getContext('2d',{willReadFrequently:true}),sample=ctx.getImageData(0,0,canvas.width,canvas.height).data;
+  let ink=0;for(let i=0;i<sample.length;i+=Math.max(4,Math.floor(sample.length/24000/4)*4)){if(sample[i]<220||sample[i+1]<220||sample[i+2]<220)ink++}
+  if(ink<20)throw Error('ตรวจพบหน้ากระดาษว่าง ระบบยกเลิกการบันทึกเพื่อไม่ให้ได้ไฟล์เปล่า');
+  await job.toPdf().save();
+  msg('สร้าง PDF สำเร็จ ตรวจพบเนื้อหา '+data.items.length+' รายการ');
+ }catch(e){msg('สร้าง PDF ไม่สำเร็จ: '+e.message)}
+ finally{if(source)source.remove();btn.disabled=false;btn.textContent='ดาวน์โหลด PDF'}
+};
 el('#shareBtn').onclick=async()=>{try{if(navigator.share)await navigator.share({title:'เว็บใบเสนอราคา TTM',url:location.href});else{await navigator.clipboard.writeText(location.href);msg('คัดลอกลิงก์เว็บแล้ว')}}catch(e){if(e.name!=='AbortError')msg('แชร์ไม่ได้: '+e.message)}};
 el('#exportBtn').onclick=()=>{const blob=new Blob([JSON.stringify({saved:list(),draft:data},null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='TTM_Quotes_Backup_'+today()+'.json';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),5000);msg('ส่งออกไฟล์สำรองแล้ว')};
 el('#importBtn').onclick=()=>el('#importFile').click();el('#importFile').onchange=async e=>{const file=e.target.files[0];if(!file)return;try{const obj=JSON.parse(await file.text());if(!obj.saved||!obj.draft)throw Error('รูปแบบไฟล์ไม่ตรง');localStorage.setItem(KEY,JSON.stringify(obj.saved));data=obj.draft;persist();render();msg('นำเข้าข้อมูลสำเร็จ')}catch(err){msg('นำเข้าไม่ได้: '+err.message)}e.target.value=''};render();msg('พร้อมกรอกและบันทึกข้อมูล');
