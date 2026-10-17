@@ -958,7 +958,7 @@ async function processTextEvent(event) {
 
   // Image-edit requests must produce an image, not a conversational promise.
   // Images are resolved only from this LINE group's own archive.
-  const imageEditCommand = /(?:(?:แก้|ปรับ|ตกแต่ง|แต่ง|จัดหน้า|ลบ|เพิ่ม|เปลี่ยน|ทำให้|ทำไฟล์|จัดไฟล์).{0,90}(?:รูป|ภาพ|โลโก้|สี|พื้นหลัง|แบบ|สวย))|(?:(?:รูป|ภาพ|ไฟล์).{0,90}(?:สวย|แก้|ปรับ|แต่ง|โลโก้)))/iu.test(String(userText||""));
+  const imageEditCommand = /(?:แก้|ปรับ|ตกแต่ง|แต่ง|จัดหน้า|เพิ่ม|เปลี่ยน|ทำให้|ทำไฟล์|จัดไฟล์).{0,90}(?:รูป|ภาพ|โลโก้|สี|พื้นหลัง|แบบ|สวย)|(?:รูป|ภาพ|ไฟล์).{0,90}(?:สวย|แก้|ปรับ|แต่ง|โลโก้)/iu.test(String(userText||""));
   if (imageEditCommand) {
     try {
       const result=await require("./line-image-editor")({
