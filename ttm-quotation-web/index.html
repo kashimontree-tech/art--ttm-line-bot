@@ -40,7 +40,7 @@ async function makePdf(mode){
   await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
   if(source.getBoundingClientRect().height<150||source.querySelectorAll('tbody tr').length!==data.items.length)throw Error('เอกสารยังไม่แสดงข้อมูลครบ');
   const filename=pdfFilename();
-  const job=html2pdf().set({margin:[8,8,8,8],filename,image:{type:'jpeg',quality:.98},html2canvas:{scale:1.65,useCORS:true,backgroundColor:'#ffffff',scrollY:0,scrollX:0,windowWidth:1000},jsPDF:{unit:'mm',format:'a4',orientation:'portrait'},pagebreak:{mode:['css','legacy'],avoid:['tr','.sign']}}).from(source).toCanvas();
+  const job=html2pdf().set({margin:[8,8,8,8],filename,image:{type:'jpeg',quality:.98},html2canvas:{scale:1.65,useCORS:true,backgroundColor:'#ffffff',scrollY:0,scrollX:0},jsPDF:{unit:'mm',format:'a4',orientation:'portrait'},pagebreak:{mode:['css','legacy'],avoid:['tr','.sign']}}).from(source).toCanvas();
   const canvas=await job.get('canvas');
   if(!canvas||canvas.width<300||canvas.height<200)throw Error('จับภาพเอกสารไม่สำเร็จ');
   const ctx=canvas.getContext('2d',{willReadFrequently:true}),sample=ctx.getImageData(0,0,canvas.width,canvas.height).data;
