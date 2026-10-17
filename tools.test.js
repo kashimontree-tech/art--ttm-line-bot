@@ -92,3 +92,10 @@ test("failed silent attachment analysis also stays silent",async()=>{
 test("service-only internal smoke tests cannot send LINE messages",async()=>{
  const h=queueHarness();await h.queue.enqueue({scopeId:scope,requesterId:user,messageId:"msg6",kind:"document",payload:{internalTest:true}});await h.queue.tick();assert.equal(h.sends.length,0);
 });
+
+test("document API request explicitly asks for JSON in its input",async()=>{
+ let request,stored=false;
+ const handlers=gen.createGenerationHandlers({key:"test",loadContext:async()=>"ข้อมูลทดสอบ",supabaseRequest:async()=>[],downloadSupabaseFile:async()=>Buffer.alloc(0),uploadSupabaseFile:async bytes=>{stored=bytes.subarray(0,2).toString()==="PK";return {bucket:"test",storagePath:"test.docx"}},saveFileMemory:async()=>{},createSupabaseSignedUrl:async()=>"https://example.com/test.docx",fetchImpl:async(url,opts)=>{request=JSON.parse(opts.body);return {ok:true,json:async()=>({status:"completed",output_text:JSON.stringify(spec)})}}});
+ const result=await handlers.document({id:"123e4567-e89b-12d3-a456-426614174000",scope_id:scope,requester_id:user,payload:{text:"ทำ Word ทดสอบ",format:"docx"}});
+ assert.match(request.input[0].content[0].text,/JSON/i);assert.equal(request.text.format.type,"json_object");assert.ok(stored);assert.ok(result.fileName.endsWith(".docx"));
+});
