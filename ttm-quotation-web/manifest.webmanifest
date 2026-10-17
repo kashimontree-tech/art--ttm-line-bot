@@ -1,15 +1,22 @@
 {
   "name": "TTM HOME DESIGN Quotation",
   "short_name": "TTM Quote",
-  "start_url": "/",
+  "start_url": "/?app_icon=20261017-new7",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#07344b",
   "icons": [
     {
-      "src": "/logo.jpg",
+      "src": "/logo.jpg?ttmquote=20261017-new7",
       "sizes": "192x192",
-      "type": "image/jpeg"
+      "type": "image/jpeg",
+      "purpose": "any"
+    },
+    {
+      "src": "/logo.jpg?ttmquote=20261017-new7",
+      "sizes": "512x512",
+      "type": "image/jpeg",
+      "purpose": "any"
     }
   ]
 }
