@@ -4,6 +4,7 @@
 module.exports = async function editLastLineImage({scopeId,instruction,displayName,liveFileCache,supabaseRequest,downloadSupabaseFile,uploadSupabaseFile,saveFileMemory,createSupabaseSignedUrl,openaiKey}) {
   if (!openaiKey) throw new Error("OPENAI_API_KEY missing");
   const cache=liveFileCache.get(String(scopeId))||[];
+  const wantsLogo=/โลโก้|logo/i.test(instruction||"") && !/ไม่(?:ต้อง)?ใส่โลโก้|ตัดโลโก้|ลบโลโก้/.test(instruction||"");
   let source=cache.find(x=>/^image\/(png|jpeg|webp)$/.test(x.mime||"") && x.bytes);
   if (!source) {
     const rows=await supabaseRequest("line_memories?select=file_name,mime_type,storage_bucket,storage_path,created_at"+
@@ -14,16 +15,29 @@ module.exports = async function editLastLineImage({scopeId,instruction,displayNa
   if (!source) return {text:(displayName||"พี่")+"ครับ ยังไม่พบรูปต้นฉบับที่เก็บไว้ใน LINE กลุ่มนี้ กรุณาส่งรูปเข้ากลุ่มก่อนครับ"};
   if (source.bytes.length>20*1024*1024) return {text:(displayName||"พี่")+"ครับ รูปต้นฉบับมีขนาดเกิน 20 MB กรุณาส่งรูปที่เล็กลงครับ"};
   const prompt=String(instruction||"").replace(/(?:^|\s)@?อาร์ต(?:\s*TTM)?/gi,"").trim().slice(0,3000);
-  // Do not pretend to know a precise brand mark when it has not been provided.
-  if (/โลโก้|logo/i.test(prompt) && !/ไม่(?:ต้อง)?ใส่โลโก้|ตัดโลโก้|ลบโลโก้/.test(prompt)) {
-    return {text:(displayName||"พี่")+"ครับ พบรูปต้นฉบับแล้ว แต่ยังไม่ได้ผูกไฟล์โลโก้ TTM ที่ยืนยันเป็นทางการไว้กับระบบแก้ภาพ กรุณาส่งโลโก้ TTM ลงในกลุ่มเพื่อยืนยันก่อนครับ"};
+  // Locate a separately provided TTM logo in this same group's archive.
+  // A command that said "save logo permanently" does not itself persist an image
+  // unless the attachment was successfully archived.
+  let logo=null;
+  if (wantsLogo) {
+    const rows=await supabaseRequest("line_memories?select=file_name,mime_type,storage_bucket,storage_path,text_content,created_at"+
+      "&scope_id=eq."+encodeURIComponent(scopeId)+"&storage_path=not.is.null&order=created_at.desc&limit=150",{method:"GET"});
+    const candidates=(rows||[]).filter(x=>/^image\\/(png|jpeg|webp)$/i.test(x.mime_type||"")&&x.storage_bucket&&x.storage_path);
+    // Explicitly labeled logo takes precedence. Otherwise use the most recently
+    // archived image if another source image exists.
+    const named=candidates.find(x=>/ttm.*(?:logo|โลโก้)|(?:logo|โลโก้).*ttm|logo|โลโก้/i.test((x.file_name||"")+" "+(x.text_content||"")));
+    const latestOther=candidates.find(x=>x.file_name!==source.fileName);
+    const selected=named||latestOther;
+    if (!selected) return {text:(displayName||"พี่")+"ครับ พบรูปสำหรับแก้ไขแล้ว แต่ยังหาไฟล์โลโก้ TTM แยกจากรูปต้นฉบับในกลุ่มนี้ไม่พบ กรุณาส่งรูปโลโก้เข้ากลุ่มอีกครั้งครับ"};
+    logo={fileName:selected.file_name,mime:selected.mime_type,bytes:await downloadSupabaseFile(selected.storage_bucket,selected.storage_path)};
   }
   const fd=new FormData();
   fd.append("model",process.env.OPENAI_IMAGE_EDIT_MODEL||"gpt-image-1.5");
-  fd.append("prompt","Edit the uploaded original image as the user requests, preserving essential dimensions, labels, objects, and legible text as much as possible. Never invent official logos, seals or construction measurements. User request (Thai): "+prompt);
+  fd.append("prompt","Edit the uploaded original image as the user requests, preserving essential dimensions, labels, objects, and legible text as much as possible. Never invent official logos, seals or construction measurements. If a second input image is supplied, it is the TTM logo asset. Reproduce that supplied logo precisely as an overlay without inventing or redrawing it. User request (Thai): "+prompt);
   fd.append("size","auto");
   fd.append("quality","medium");
-  fd.append("image",new Blob([source.bytes],{type:source.mime||"image/png"}),source.fileName||"source.png");
+  fd.append("image[]",new Blob([source.bytes],{type:source.mime||"image/png"}),source.fileName||"source.png");
+  if (logo) fd.append("image[]",new Blob([logo.bytes],{type:logo.mime||"image/png"}),logo.fileName||"ttm-logo.png");
   const resp=await fetch("https://api.openai.com/v1/images/edits",{method:"POST",headers:{Authorization:"Bearer "+openaiKey},body:fd});
   if (!resp.ok) throw new Error("Image edits API "+resp.status+": "+(await resp.text()).slice(0,300));
   const data=await resp.json();
