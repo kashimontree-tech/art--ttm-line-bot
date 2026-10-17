@@ -1,6 +1,6 @@
 "use strict";
 
-const VERSION = "context-reasoning-20261018-v1";
+const VERSION = "tools-jobs-20261018-v2";
 const MAX_BYTES = 16 * 1024 * 1024;
 
 async function loadContextParts(loaders, log = console.error) {

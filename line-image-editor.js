@@ -46,5 +46,5 @@ module.exports = async function editLastLineImage({scopeId,instruction,displayNa
   const stored=await uploadSupabaseFile(bytes,scopeId,"ai-image-edit",filename,"image/png");
   await saveFileMemory({scopeId,userId:null,displayName:"Art TTM",source:{type:"bot"},fileName:filename,lineMessageId:null,openaiFileId:null,mime:"image/png",summary:"Edited from "+source.fileName+"; "+prompt,storageBucket:stored.bucket,storagePath:stored.storagePath});
   const url=await createSupabaseSignedUrl(stored.bucket,stored.storagePath,3600);
-  return {url,text:(displayName||"พี่")+"ครับ แก้ภาพจากต้นฉบับในกลุ่มนี้เสร็จแล้วครับ\n"+filename+"\n"+url+"\nลิงก์ใช้ได้ 1 ชั่วโมงครับ"};
+  return {url,fileName:filename,text:(displayName||"พี่")+"ครับ แก้ภาพจากต้นฉบับในกลุ่มนี้เสร็จแล้วครับ\n"+filename+"\n"+url+"\nลิงก์ใช้ได้ 1 ชั่วโมงครับ"};
 };

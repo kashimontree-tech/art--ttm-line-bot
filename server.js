@@ -3,6 +3,8 @@ const crypto = require("crypto");
 const XLSX = require("xlsx");
 const PDFDocument = require("pdfkit");
 const assistantContext = require("./assistant-context");
+const documentTools = require("./document-tools");
+const generationTools = require("./generation-handlers");
 
 const app = express();
 app.get("/slip-admin.html", (req,res) => res.sendFile(require("path").join(__dirname,"slip-admin.html")));
@@ -148,7 +150,23 @@ app.post("/internal/sukloei-notify", express.json(), async (req, res) => {
   }
 });
 
-app.get("/health", (req, res) => res.json({ok:true, version:assistantContext.VERSION, reasoningModel:assistantContext.reasoningOptions().model}));
+let aiJobQueue = null;
+let aiGenerators = null;
+function getAiJobs() {
+  if (!aiJobQueue) {
+    aiGenerators=generationTools.createGenerationHandlers({
+      key:CLEAN_OPENAI_KEY,supabaseRequest,downloadSupabaseFile,uploadSupabaseFile,saveFileMemory,
+      createSupabaseSignedUrl,getThaiPdfFont,liveFileCache,saveMessage,
+      loadContext:async scope => (await assistantContext.loadContextParts([
+        ()=>loadRecentContext(scope),()=>loadMemberContext(scope),
+        ()=>loadLongTermMemory(scope),()=>loadApprovedTtmKnowledge()
+      ])).join("\n\n")
+    });
+    aiJobQueue=require("./background-jobs").createJobQueue({supabaseRequest,handlers:aiGenerators,token:CLEAN_LINE_TOKEN});
+  }
+  return aiJobQueue;
+}
+app.get("/health", (req, res) => res.json({ok:true, version:assistantContext.VERSION, reasoningModel:assistantContext.reasoningOptions().model, features:["reasoning","attachment-followup","document-jobs","image-jobs","audio-transcription","public-web-search","narrated-still-video"]}));
 
 app.get("/", (req, res) => {
   res.status(200).send("Art TTM LINE Bot is running");
@@ -362,6 +380,10 @@ async function archiveMediaEvent(event) {
     saved=await uploadSupabaseFile(media.bytes,scopeId,event.message.id,fileName,media.mime||mime);
     await saveFileMemory({scopeId,userId,displayName:null,source,fileName,lineMessageId:event.message.id,openaiFileId:null,mime:media.mime||mime,summary:"ต้นฉบับจาก LINE "+type,storageBucket:saved.bucket,storagePath:saved.storagePath});
     await markAttachment(event,"stored",fileName,saved.storagePath);
+    if(type==="audio") {
+      await getAiJobs().enqueue({scopeId,requesterId:userId,messageId:event.message.id,kind:"audio",payload:{attachmentId:event.message.id,silent:isGroupConversation(source)}});
+      void getAiJobs().tick();
+    }
   } catch(error){
     console.error("Permanent "+type+" archive failed:",{messageId:event.message.id,error:String(error)});
     try { await markAttachment(event,"failed",fileName,saved?.storagePath,error.message); }
@@ -891,7 +913,9 @@ async function processTextEvent(event) {
       "🤖 Art TTM — ความสามารถใน LINE กลุ่ม",
       "• เรียกสมาชิกด้วยชื่อเล่นที่บันทึกตาม LINE User ID",
       "• สรุปข้อความประชุมและข้อมูลที่บอทได้รับ",
-      "• ค้นหาไฟล์ที่บันทึกไว้และช่วยทำ PDF/Excel ตามคำสั่งที่รองรับ",
+      "• สร้าง Word, PowerPoint, Excel และ PDF จากคำสั่ง พร้อมเก็บไฟล์ในคลังกลุ่ม",
+      "• สร้างภาพใหม่หรือแก้ภาพ ถอดเสียง และค้นเว็บทั่วไป",
+      "• ตรวจคิวสร้างไฟล์ด้วย ‘อาร์ต งานล่าสุด’",
       "• ช่วยตอบคำถาม วิเคราะห์งาน และคำนวณ โดยเปิดการคิดวิเคราะห์",
       "• ถามต่อจากรูป/PDF/Excel โดยอ่านต้นฉบับในกลุ่ม สูงสุด 4 ไฟล์ต่อคำถามตามขนาดที่รองรับ",
       "• ตรวจสมาชิกที่ LINE เปิดให้เข้าถึงด้วยคำสั่ง ‘อาร์ต ตรวจรายชื่อสมาชิกทั้งหมด’",
@@ -970,32 +994,21 @@ async function processTextEvent(event) {
   }
   if (!isArtInvoked(event)) return; // Do not interrupt ordinary group conversation.
 
-  // Image-edit requests must produce an image, not a conversational promise.
-  // Images are resolved only from this LINE group's own archive.
-  const imageEditCommand = /(?:แก้|ปรับ|ตกแต่ง|แต่ง|จัดหน้า|เพิ่ม|เปลี่ยน|ทำให้|ทำไฟล์|จัดไฟล์).{0,90}(?:รูป|ภาพ|โลโก้|สี|พื้นหลัง|แบบ|สวย)|(?:รูป|ภาพ|ไฟล์).{0,90}(?:สวย|แก้|ปรับ|แต่ง|โลโก้)/iu.test(String(userText||""));
-  if (imageEditCommand) {
+  if (/^(?:@?อาร์ต|art(?:\s*ttm)?)\s*(?:งานล่าสุด|สถานะงาน|เช็คงาน|ตรวจงาน)$/iu.test(String(userText||"").trim())) {
+    await replyMessage(event.replyToken,await getAiJobs().status(scopeId));return;
+  }
+  const format=documentTools.requestedDocument(userText);
+  const imageEditCommand = /(?:แก้|ปรับ|ตกแต่ง|แต่ง|จัดหน้า|เพิ่ม|เปลี่ยน|ทำให้).{0,90}(?:รูป|ภาพ|โลโก้|สี|พื้นหลัง|แบบ)|(?:รูป|ภาพ).{0,90}(?:แก้|ปรับ|แต่ง)/iu.test(String(userText||""));
+  const jobKind=format?"document":generationTools.wantsWebSearch(userText)?"web":generationTools.wantsVideo(userText)?"video":generationTools.wantsTranscription(userText)?"audio":(imageEditCommand||generationTools.wantsNewImage(userText))?"image":null;
+  if(jobKind){
     try {
-      const result=await require("./line-image-editor")({
-        scopeId,instruction:userText,displayName,liveFileCache,supabaseRequest,
-        downloadSupabaseFile,uploadSupabaseFile,saveFileMemory,createSupabaseSignedUrl,
-        openaiKey:CLEAN_OPENAI_KEY
-      });
-      if (result.url) {
-        // LINE can display the returned signed HTTPS PNG directly.
-        const rr=await fetch("https://api.line.me/v2/bot/message/reply",{
-          method:"POST",
-          headers:{"Content-Type":"application/json",Authorization:"Bearer "+CLEAN_LINE_TOKEN},
-          body:JSON.stringify({replyToken:event.replyToken,messages:[
-            {type:"image",originalContentUrl:result.url,previewImageUrl:result.url},
-            {type:"text",text:result.text.slice(0,4800)}
-          ]})
-        });
-        if(!rr.ok)throw new Error("LINE image reply "+rr.status+": "+(await rr.text()).slice(0,300));
-      } else await replyMessage(event.replyToken,result.text);
-    } catch(editError) {
-      console.error("LINE image edit failed:",String(editError));
-      try {await replyMessage(event.replyToken,(displayName||"พี่")+"ครับ ยังแก้รูปไม่สำเร็จ ระบบสร้างภาพมีข้อผิดพลาด กรุณาลองอีกครั้งภายหลังครับ");}catch(replyErr){console.error("LINE edit error reply failed:",String(replyErr))}
-    }
+      const job=await getAiJobs().enqueue({scopeId,requesterId:userId,messageId:event.message.id,kind:jobKind,
+        payload:{text:userText,displayName,format,edit:!format&&imageEditCommand,quotedId:event.message.quotedMessageId}});
+      await replyMessage(event.replyToken,job
+        ? `${displayName||"พี่"}ครับ รับงานแล้ว รหัส ${job.id}\nอาร์ตจะส่งผลกลับในห้องนี้เมื่อเสร็จ ตรวจด้วย “อาร์ต งานล่าสุด” ได้ครับ`
+        : "คำสั่งนี้อยู่ในคิวแล้วครับ พิมพ์ ‘อาร์ต งานล่าสุด’ เพื่อตรวจสถานะ");
+      void getAiJobs().tick();
+    }catch(error){console.error("AI job intake failed",error.message);await replyMessage(event.replyToken,"ยังรับงานเข้าคิวไม่สำเร็จครับ กรุณาลองใหม่");}
     return;
   }
 
@@ -1036,9 +1049,9 @@ async function processTextEvent(event) {
       directIdentityReply(userText, displayName) ||
       knownTtmWebLinkReply(userText, displayName) ||
       (require("./archive-search").isFileCatalogRequest(userText) ? await require("./archive-search").listFileCatalog({scopeId,displayName,supabaseRequest}) : null) ||
-      (require("./material-research").isMaterialResearch(userText) ? await require("./material-research").researchMaterials(userText,{key:CLEAN_OPENAI_KEY,model:OPENAI_MODEL,displayName}) : null) ||
+      (require("./material-research").isMaterialResearch(userText) && !/(ฐาน|ที่เคย|ที่บันทึก|ของเรา|ซัพพลายเออร์|ซันไม|sanmai)/i.test(userText) ? await require("./material-research").researchMaterials(userText,{key:CLEAN_OPENAI_KEY,model:OPENAI_MODEL,displayName}) : null) ||
       await maybeReturnKnownFile(userText, scopeId, displayName, event.source?.userId) ||
-      (require("./archive-search").isSearchRequest(userText) ? await require("./archive-search").searchArchive({text:userText,scopeId,displayName,supabaseRequest,createSupabaseSignedUrl}) : null) ||
+      (require("./archive-search").isSearchRequest(userText) && !(/ฐานราคา|ฐานข้อมูล|ราคาที่เคย|ต้นทุนที่มี|ซัพพลายเออร์/u.test(userText)&&approvedCompanyKnowledge) ? await require("./archive-search").searchArchive({text:userText,scopeId,displayName,supabaseRequest,createSupabaseSignedUrl}) : null) ||
       (/(อัปเดต|อัพเดท|เพิ่ม|แนบเพิ่ม)/i.test(userText) && /(รูป|สลิป|อัลบั้ม|ไฟล์)/i.test(userText) ? await addLatestSlipToAlbum(scopeId,displayName,userText) : null) ||
       (/(สลิป|slip|อัลบั้ม|album|เจมาร์ท|j.?mart)/i.test(userText) && /(อัลบั้ม|album|excel|เอ็กเซล|ยอดเงิน|จำนวนเงิน|สรุปยอด)/i.test(userText) ? await makeDetailedSlipAlbum(scopeId,displayName,userText) : null) ||
       (/(สลิป|slip)/i.test(userText) && /(รวม|ทำไฟล์|pdf|พีดีเอฟ|สร้างไฟล์)/i.test(userText) ? await makeSlipReport(scopeId,displayName) : null) ||
@@ -1296,11 +1309,11 @@ async function loadApprovedTtmKnowledge() {
   // Personal memories, pending documents and group-private content are excluded.
   const rows=(await supabaseRequest(
     "ttm_shared_knowledge?select=title,category,content,source_reference,version" +
-    "&approval_status=eq.approved&visibility=eq.ttm_internal&order=updated_at.desc&limit=25",
+    "&approval_status=eq.approved&visibility=eq.ttm_internal&order=updated_at.desc&limit=100",
     {method:"GET"}
   ))||[];
   return rows.map(x=>"เอกสาร: "+x.title+" (หมวด "+x.category+", เวอร์ชัน "+x.version+")\n"+
-    String(x.content||"").slice(0,650)).join("\n---\n").slice(0,11000);
+    String(x.content||"").slice(0,8000)+"\nแหล่งอ้างอิง: "+String(x.source_reference||"")).join("\n---\n").slice(0,60000);
 }
 
 async function loadLongTermMemory(scopeId) {
@@ -1472,7 +1485,7 @@ async function maybeReturnKnownFile(text, scopeId, displayName, requestUserId) {
   // Generic "return the saved file" commands have no filename: use the latest
   // verified archive entry from the CURRENT LINE group only.
   const genericReturn=/(?:ส่ง|ขอ|เอา|ดาวน์โหลด).*(?:ไฟล์|รูป|ภาพ).*(?:ที่บันทึก|บันทึกไว้|ล่าสุด|กลับมา|คืนมา)|(?:ส่ง|ขอ|เอา).*(?:กลับมา|คืนมา).*(?:ไฟล์|รูป|ภาพ)/i.test(text||"");
-  if(genericReturn && !/(?:ชื่อไฟล์|ชื่อรูป|ชื่อภาพ)/i.test(text||"") && !/[a-zA-Z0-9_-]+\.(?:xlsx|xls|pdf|docx|doc|zip|png|jpg|jpeg)\b/i.test(text||"")) {
+  if(genericReturn && !/(?:ชื่อไฟล์|ชื่อรูป|ชื่อภาพ)/i.test(text||"") && !/[a-zA-Z0-9_-]+\.(?:xlsx|xls|pdf|docx|doc|pptx|ppt|txt|csv|mp4|mp3|m4a|zip|png|jpg|jpeg|webp)\b/i.test(text||"")) {
     const wantImage=/(?:รูป|ภาพ)/i.test(text||"");
     const target=wantImage ? files.find(f=>/^image\//i.test(f.mime_type||"")) : files[0];
     if(!target)return `${displayName||"พี่"}ครับ ยังไม่พบ${wantImage?"รูปภาพ":"ไฟล์"}ที่บันทึกไว้ใน LINE กลุ่มนี้ครับ`;
@@ -1481,7 +1494,7 @@ async function maybeReturnKnownFile(text, scopeId, displayName, requestUserId) {
       return `${displayName||"พี่"}ครับ ส่ง${wantImage?"รูปภาพ":"ไฟล์"}ที่บันทึกล่าสุดในกลุ่มนี้กลับมาแล้วครับ ✅\nชื่อ: ${target.file_name}\n${link}\nลิงก์ดาวน์โหลดมีอายุ 1 ชั่วโมงครับ`;
     }catch(err){console.error("Latest archive link:",err);return `${displayName||"พี่"}ครับ พบไฟล์ล่าสุด “${target.file_name}” แต่สร้างลิงก์ไม่สำเร็จ กรุณาลองใหม่ครับ`;}
   }
-  const exact=String(text||"").match(/([^\s“”"'<>]+\.(?:xlsx|xls|pdf|docx|doc|zip|png|jpg|jpeg))/i)?.[1];
+  const exact=String(text||"").match(/([^\s“”"'<>]+\.(?:xlsx|xls|pdf|docx|doc|pptx|ppt|txt|csv|mp4|mp3|m4a|zip|png|jpg|jpeg|webp))/i)?.[1];
   const exactNorm=norm(exact);
   let matches=exactNorm?files.filter(f=>norm(f.file_name)===exactNorm):[];
   if(!matches.length&&!exact) {
@@ -1693,6 +1706,8 @@ async function auditSanmaiSlipsOnce(){
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Art TTM server running on port ${PORT}`);
+  setInterval(()=>void getAiJobs().tick(),15000).unref();
+  setTimeout(()=>void getAiJobs().tick(),2000).unref();
   // Explicit owner request: announce verified capabilities once to each
   // registered group, storing delivery receipts. Never run twice per group.
   setTimeout(()=>require("./group-capability-notice").broadcast({
