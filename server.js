@@ -5,6 +5,7 @@ const PDFDocument = require("pdfkit");
 const assistantContext = require("./assistant-context");
 const documentTools = require("./document-tools");
 const generationTools = require("./generation-handlers");
+const knowledgeUpdates = require("./knowledge-updates");
 
 const app = express();
 app.get("/slip-admin.html", (req,res) => res.sendFile(require("path").join(__dirname,"slip-admin.html")));
@@ -166,7 +167,7 @@ function getAiJobs() {
   }
   return aiJobQueue;
 }
-app.get("/health", (req, res) => res.json({ok:true, version:assistantContext.VERSION, reasoningModel:assistantContext.reasoningOptions().model, features:["reasoning","attachment-followup","document-jobs","image-jobs","audio-transcription","public-web-search","narrated-still-video"]}));
+app.get("/health", (req, res) => res.json({ok:true, version:assistantContext.VERSION, reasoningModel:assistantContext.reasoningOptions().model, features:["reasoning","attachment-followup","document-jobs","image-jobs","audio-transcription","public-web-search","narrated-still-video","live-knowledge-updates"]}));
 
 app.get("/", (req, res) => {
   res.status(200).send("Art TTM LINE Bot is running");
@@ -457,6 +458,7 @@ async function processFileEvent(event, silent = false) {
     });
     if(!response.ok)throw Error(`OpenAI read ${response.status}: ${await response.text()}`);
     summary=extractOutputText(await response.json())||"";
+    if(indexed && summary)await knowledgeUpdates.updateAttachmentSummary({scopeId,messageId:event.message.id,summary,supabaseRequest});
   } catch(error){console.error("LINE file analysis failed (archive retained):",error);}
   try {
     await saveMessage({lineMessageId:event.message.id||null,scopeId,userId,displayName:rawName,groupId:source.groupId||null,messageType:"file",text:`[ไฟล์: ${fileName}] ${summary||"ยังไม่สรุปเนื้อหา"}`,role:"user"});
@@ -515,6 +517,7 @@ async function processImageEvent(event, silent = false) {
     }
     const dataUrl = `data:${mime};base64,${bytes.toString("base64")}`;
     const answer = await askOpenAIImage(dataUrl, displayName);
+    if(storedImage)await knowledgeUpdates.updateAttachmentSummary({scopeId,messageId:event.message.id,summary:answer,supabaseRequest}).catch(error=>console.error("Image summary persistence failed",error.message));
     await markImageAnalysis(event,"read","AI image description completed; verify individual slip details before accounting");
 
     try {
@@ -909,20 +912,7 @@ async function processTextEvent(event) {
   // Transparent capability report. Never imply access to all group members,
   // unrestricted ChatGPT tools, or autonomous actions from this bot.
   if (/^(?:@?อาร์ต|art(?:\s*ttm)?)\s*(?:ความสามารถ|ทำอะไรได้บ้าง|สถานะระบบ|ช่วยเหลือ|คำสั่ง)$/iu.test(String(userText||"").trim())) {
-    await replyMessage(event.replyToken, [
-      "🤖 Art TTM — ความสามารถใน LINE กลุ่ม",
-      "• เรียกสมาชิกด้วยชื่อเล่นที่บันทึกตาม LINE User ID",
-      "• สรุปข้อความประชุมและข้อมูลที่บอทได้รับ",
-      "• สร้าง Word, PowerPoint, Excel และ PDF จากคำสั่ง พร้อมเก็บไฟล์ในคลังกลุ่ม",
-      "• สร้างภาพใหม่หรือแก้ภาพ ถอดเสียง และค้นเว็บทั่วไป",
-      "• ตรวจคิวสร้างไฟล์ด้วย ‘อาร์ต งานล่าสุด’",
-      "• ช่วยตอบคำถาม วิเคราะห์งาน และคำนวณ โดยเปิดการคิดวิเคราะห์",
-      "• ถามต่อจากรูป/PDF/Excel โดยอ่านต้นฉบับในกลุ่ม สูงสุด 4 ไฟล์ต่อคำถามตามขนาดที่รองรับ",
-      "• ตรวจสมาชิกที่ LINE เปิดให้เข้าถึงด้วยคำสั่ง ‘อาร์ต ตรวจรายชื่อสมาชิกทั้งหมด’",
-      "",
-      "ข้อจำกัด: อ่านย้อนหลังได้เฉพาะข้อมูลที่บอทเก็บไว้ ไม่เห็นสมาชิก LINE ทั้งหมดโดยอัตโนมัติ และไม่สามารถใช้ทุกเครื่องมือเหมือน ChatGPT ส่วนตัว",
-      "ส่งคำสั่งที่ต้องการมาได้ครับ งานที่ต้องใช้สิทธิ์หรือมีค่าใช้จ่ายเพิ่มเติมจะขออนุมัติก่อน"
-    ].join("\n"));
+    await replyMessage(event.replyToken,await require("./capability-report").report({scopeId,supabaseRequest,version:assistantContext.VERSION}));
     return;
   }
   // Reliable roster from the bot's own observed conversations. This does
@@ -1308,11 +1298,11 @@ async function loadApprovedTtmKnowledge() {
   // Only company knowledge explicitly approved and marked TTM internal.
   // Personal memories, pending documents and group-private content are excluded.
   const rows=(await supabaseRequest(
-    "ttm_shared_knowledge?select=title,category,content,source_reference,version" +
+    "ttm_shared_knowledge?select=id,title,category,content,source_reference,version,updated_at" +
     "&approval_status=eq.approved&visibility=eq.ttm_internal&order=updated_at.desc&limit=100",
     {method:"GET"}
   ))||[];
-  return rows.map(x=>"เอกสาร: "+x.title+" (หมวด "+x.category+", เวอร์ชัน "+x.version+")\n"+
+  return knowledgeUpdates.newestKnowledge(rows).map(x=>"เอกสาร: "+x.title+" (หมวด "+x.category+", เวอร์ชัน "+x.version+")\n"+
     String(x.content||"").slice(0,8000)+"\nแหล่งอ้างอิง: "+String(x.source_reference||"")).join("\n---\n").slice(0,60000);
 }
 
@@ -1323,7 +1313,7 @@ async function loadLongTermMemory(scopeId) {
     { method: "GET" }
   )) || [];
   return rows.reverse().map((m) =>
-    `${m.display_name || "ผู้ใช้"}: ${m.memory_text || m.text_content || ""}`
+    `${m.created_at || ""} ${m.display_name || "ผู้ใช้"}: ${m.memory_text || m.text_content || ""}`
   ).filter((x) => !x.endsWith(": ")).join("\n").slice(-16000);
 }
 
@@ -1525,22 +1515,17 @@ function directIdentityReply(text, displayName) {
 }
 
 function looksLikeMemory(text) {
-  return /(จำไว้|จำว่า|ชื่อ.*คือ|เรียกว่า|เป็นแฟน|เป็นภรรยา|เป็นสามี|เป็นลูก|เป็นพี่|เป็นน้อง|ตำแหน่ง|โปรเจกต์.*ชื่อ|โครงการ.*ชื่อ)/i.test(text || "");
+  return knowledgeUpdates.shouldRemember(text);
 }
 
 async function saveLongTermMemory({ scopeId, userId, displayName, sourceType, source, text, lineMessageId, mentionedMembers = [] }) {
   if (!looksLikeMemory(text)) return;
   const mentionedNames = mentionedMembers.map((m) => m.displayName).filter(Boolean);
-  const relationMatch = (text || "").match(/(แฟน|ภรรยา|สามี|ลูก|พ่อ|แม่|พี่|น้อง|เพื่อน|หุ้นส่วน|ลูกน้อง|หัวหน้า)/);
-  const relation = relationMatch ? relationMatch[1] : null;
   const normalizedMemory = mentionedNames.length
     ? [
         `ผู้พูดชื่อ LINE: ${displayName || "ไม่ทราบชื่อ"} (LINE userId: ${userId || "unknown"})`,
         `ข้อความ: ${text}`,
         `บุคคลที่ถูก @mention: ${mentionedNames.join(", ")}`,
-        relation && mentionedNames.length === 1
-          ? `ข้อเท็จจริงความสัมพันธ์: ${mentionedNames[0]} เป็น${relation}ของ${displayName || "ผู้พูด"}`
-          : "",
       ].filter(Boolean).join("\n")
     : `ผู้พูดชื่อ LINE: ${displayName || "ไม่ทราบชื่อ"}\nข้อความ: ${text}`;
   await supabaseRequest("line_memories", {

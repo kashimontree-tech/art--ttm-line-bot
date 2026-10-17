@@ -19,7 +19,7 @@ This release adds durable, group-scoped jobs for document creation, image genera
 
 ## Validation
 
-Run `node --test assistant-context.test.js tools.test.js`. Tests cover real DOCX/PPTX/XLSX containers, Thai content and numeric values, MP4 generation, routing, scoped reads, independent context failures, event deduplication, failed delivery, silent processing and internal test isolation. Syntax checks cover every root JavaScript module. A sample Thai PDF was rendered and visually inspected. These local tests do not certify model accuracy or LINE delivery. Production smoke tests created and downloaded Thai DOCX/PDF files, performed public web research, and generated a narrated MP4. Audio transcription also ran end to end; its first result used Romanized Thai, so Thai prompting and the default transcription model were strengthened and require retesting. No smoke-test result was sent to a LINE recipient.
+Run `node --test assistant-context.test.js tools.test.js knowledge-updates.test.js capability-report.test.js`. Tests cover real DOCX/PPTX/XLSX containers, Thai content and numeric values, MP4 generation, routing, scoped reads, independent context failures, event deduplication, failed delivery, silent processing and internal test isolation. Syntax checks cover every root JavaScript module. A sample Thai PDF was rendered and visually inspected. These local tests do not certify model accuracy or LINE delivery. Production smoke tests created and downloaded Thai DOCX/PDF files, performed public web research, and generated a narrated MP4. Audio transcription also ran end to end; its first result used Romanized Thai, so Thai prompting and the default transcription model were strengthened; the production retest returned Thai text, while proper names still require checking. No smoke-test result was sent to a LINE recipient.
 
 ## Current boundaries
 
@@ -32,3 +32,9 @@ Run `node --test assistant-context.test.js tools.test.js`. Tests cover real DOCX
 - Old LINE history from before the bot joined is unavailable through ordinary webhooks.
 - Large attachments, transcripts, document sizes and slide counts have explicit bounds. Unsupported or incomplete inputs must be reported instead of invented.
 - Interrupted running jobs require review; they are not automatically replayed. Pending delivery retries are bounded to five attempts within 23 hours.
+
+## Continuous information updates
+
+New LINE file/image analyses are patched back to their existing scoped archive records after successful reading. Explicit work facts and corrections enter scoped long-term memory with timestamps. Questions are not treated as new financial facts, and mention parsing no longer invents relationships. Shared sources retain their versions and only the newest source revision is loaded.
+
+The owner separately enabled an hourly ChatGPT automation to check authorized corporate Library updates and real capability evidence. This is hourly source checking, not a real-time export of all ChatGPT conversations. The capability command reports evidence from the requesting room and excludes internal tests and silent processing. It distinguishes LINE accepting a send request from the user opening or verifying a file.
