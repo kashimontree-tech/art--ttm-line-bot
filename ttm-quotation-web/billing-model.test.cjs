@@ -1,0 +1,24 @@
+const {test}=require('node:test');
+const assert=require('node:assert/strict');
+const {totals,createBilling}=require('./billing-model.js');
+const quote={number:'TTM-2026-QU-144',vat:7,customer:'Test',items:[{desc:'Design',qty:134,price:1000}]};
+test('full and half installments, VAT and withholding in satang',()=>{
+ const bill=createBilling(quote,{},'2026-10-18');
+ assert.equal(bill.number,'TTM-2026-BL-144');
+ assert.deepEqual([totals(bill).subtotal,totals(bill).vat,totals(bill).net],[13400000,938000,14338000]);
+ bill.billingPercent=50;bill.withholdingRate=3;
+ assert.deepEqual([totals(bill).subtotal,totals(bill).vat,totals(bill).withholding,totals(bill).net],[6700000,469000,201000,6968000]);
+});
+test('source snapshot survives billing edits and duplicate numbering',()=>{
+ const bill=createBilling(quote,{'TTM-2026-BL-144':{}},'2026-10-18');
+ bill.items[0].price=1;
+ assert.equal(quote.items[0].price,1000);assert.equal(bill.sourceQuote.items[0].price,1000);
+ assert.equal(bill.number,'TTM-2026-BL-144-2');
+});
+test('round line amounts then taxes and reject invalid percentage',()=>{
+ const doc={items:[{qty:3,price:0.335},{qty:1,price:0.1}],vat:7};
+ assert.equal(totals(doc).subtotal,111);assert.equal(totals(doc).vat,8);
+ assert.equal(totals({...doc,vat:0}).net,111);
+ assert.throws(()=>totals({...doc,documentType:'billing',billingPercent:0}));
+ assert.throws(()=>createBilling({...quote,number:''}));
+});
