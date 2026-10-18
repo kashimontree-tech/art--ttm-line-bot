@@ -23,7 +23,7 @@
     const source=clone(quote),base=String(quote.number).replace(/QU/i,'BL');
     const prefix=base===quote.number?'BL-'+base:base;
     let number=prefix,index=2;while(existing[number])number=prefix+'-'+index++;
-    return {...clone(quote),documentType:'billing',number,date,dueDate:date,billingMode:'amount',billingAmount:totals(quote).subtotal/100,billingPercent:100,withholdingRate:0,sourceNumber:quote.number,sourceQuote:source,pdfFileName:number,notes:''};
+    return {...clone(quote),documentType:'billing',number,date,dueDate:date,billingMode:'amount',billingAmount:totals(quote).subtotal/100,billingPercent:100,withholdingRate:3,withholdingDefaultVersion:1,sourceNumber:quote.number,sourceQuote:source,pdfFileName:number,notes:''};
   }
   const api={totals,createBilling};
   if(typeof module==='object'&&module.exports)module.exports=api;else root.TTMBilling=api;

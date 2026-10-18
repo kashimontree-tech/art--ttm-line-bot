@@ -4,8 +4,8 @@ const {totals,createBilling}=require('./billing-model.js');
 const quote={number:'TTM-2026-QU-144',vat:7,customer:'Test',items:[{desc:'Design',qty:134,price:1000}]};
 test('full and half installments, VAT and withholding in satang',()=>{
  const bill=createBilling(quote,{},'2026-10-18');
- assert.equal(bill.number,'TTM-2026-BL-144');
- assert.deepEqual([totals(bill).subtotal,totals(bill).vat,totals(bill).net],[13400000,938000,14338000]);
+ assert.equal(bill.number,'TTM-2026-BL-144');assert.equal(bill.withholdingRate,3);
+ assert.deepEqual([totals(bill).subtotal,totals(bill).vat,totals(bill).net],[13400000,938000,13936000]);
  bill.billingMode='percent';bill.billingPercent=50;bill.withholdingRate=3;
  assert.deepEqual([totals(bill).subtotal,totals(bill).vat,totals(bill).withholding,totals(bill).net],[6700000,469000,201000,6968000]);
 });
