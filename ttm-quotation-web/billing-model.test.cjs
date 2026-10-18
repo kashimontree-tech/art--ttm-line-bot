@@ -6,7 +6,7 @@ test('full and half installments, VAT and withholding in satang',()=>{
  const bill=createBilling(quote,{},'2026-10-18');
  assert.equal(bill.number,'TTM-2026-BL-144');
  assert.deepEqual([totals(bill).subtotal,totals(bill).vat,totals(bill).net],[13400000,938000,14338000]);
- bill.billingPercent=50;bill.withholdingRate=3;
+ bill.billingMode='percent';bill.billingPercent=50;bill.withholdingRate=3;
  assert.deepEqual([totals(bill).subtotal,totals(bill).vat,totals(bill).withholding,totals(bill).net],[6700000,469000,201000,6968000]);
 });
 test('source snapshot survives billing edits and duplicate numbering',()=>{
@@ -21,4 +21,10 @@ test('round line amounts then taxes and reject invalid percentage',()=>{
  assert.equal(totals({...doc,vat:0}).net,111);
  assert.throws(()=>totals({...doc,documentType:'billing',billingPercent:0}));
  assert.throws(()=>createBilling({...quote,number:''}));
+});
+
+test('explicit billing amount drives VAT and withholding regardless of quote value',()=>{
+ const bill=createBilling(quote,{},'2026-10-18');bill.billingAmount=50000;bill.withholdingRate=3;
+ const t=totals(bill);assert.deepEqual([t.subtotal,t.vat,t.withholding,t.net],[5000000,350000,150000,5200000]);
+ assert.throws(()=>totals({...bill,billingAmount:''}));assert.throws(()=>totals({...bill,billingAmount:-1}));
 });
