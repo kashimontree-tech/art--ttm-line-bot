@@ -28,3 +28,8 @@ test('explicit billing amount drives VAT and withholding regardless of quote val
  const t=totals(bill);assert.deepEqual([t.subtotal,t.vat,t.withholding,t.net],[5000000,350000,150000,5200000]);
  assert.throws(()=>totals({...bill,billingAmount:''}));assert.throws(()=>totals({...bill,billingAmount:-1}));
 });
+
+test('legacy bills with persisted 0% still apply the requested 3%',()=>{
+ const legacy={...quote,documentType:'billing',billingMode:'amount',billingAmount:134000,withholdingRate:0,withholdingDefaultVersion:1};
+ const t=totals(legacy);assert.equal(t.withholding,402000);assert.equal(t.net,13936000);
+});

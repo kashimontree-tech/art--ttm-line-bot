@@ -10,7 +10,7 @@
     const amountMode=billing&&doc.billingMode==='amount';
     const percent=amountMode?100:(billing?finite(doc.billingPercent??100):100);
     if(percent<=0||percent>100)throw Error('สัดส่วนวางบิลต้องมากกว่า 0 และไม่เกิน 100%');
-    const vatRate=finite(doc.vat),whtRate=billing?finite(doc.withholdingRate):0;
+    const vatRate=finite(doc.vat),whtRate=billing?3:0;
     if(vatRate<0||vatRate>100||whtRate<0||whtRate>100)throw Error('อัตราภาษีต้องอยู่ระหว่าง 0–100%');
     const subtotal=amountMode?cents(doc.billingAmount):Math.round(original*percent/100);
     if(amountMode&&(!Number.isFinite(Number(doc.billingAmount))||subtotal<=0))throw Error('กรุณากรอกยอดวางบิลก่อน VAT มากกว่า 0 บาท');
