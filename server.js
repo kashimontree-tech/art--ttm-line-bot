@@ -915,23 +915,9 @@ async function processTextEvent(event) {
     await replyMessage(event.replyToken,await require("./capability-report").report({scopeId,supabaseRequest,version:assistantContext.VERSION}));
     return;
   }
-  // Reliable roster from the bot's own observed conversations. This does
-  // not pretend to enumerate LINE group members (an API permission limitation).
-  if (/(?:อาร์ต|art)/iu.test(userText) && /(?:รายชื่อที่จำได้|สมาชิกที่รู้จัก|ชื่อเล่นสมาชิกที่จำได้)/u.test(userText)) {
-    try {
-      const history=(await supabaseRequest("line_messages?select=line_user_id,display_name&scope_id=eq."+encodeURIComponent(scopeId)+"&role=eq.user&order=created_at.desc&limit=500",{method:"GET"}))||[];
-      const unique=new Map();
-      for(const item of history){if(item.line_user_id && !unique.has(item.line_user_id))unique.set(item.line_user_id,item.display_name||"ไม่ทราบโปรไฟล์");}
-      const roster=[];
-      for(const [id,profile] of unique){
-        const member=(await supabaseRequest("line_members?select=ttm_name,display_name&line_user_id=eq."+encodeURIComponent(id)+"&limit=1",{method:"GET"}))||[];
-        roster.push({profile:member[0]?.display_name||profile,alias:member[0]?.ttm_name||""});
-      }
-      const unresolved=roster.filter(x=>!x.alias).length;
-      const lines=roster.slice(0,55).map((x,i)=>(i+1)+". "+x.profile+" → "+(x.alias?honorificName(x.alias):"ยังไม่ทราบชื่อเล่น"));
-      await replyMessage(event.replyToken,("📋 สมาชิกที่ Art TTM เคยเห็นในกลุ่มนี้ "+roster.length+" บัญชี; ยังไม่มีชื่อเล่น "+unresolved+" บัญชี\n"+(lines.join("\n")||"ยังไม่พบสมาชิกในประวัติ")+
-        "\nหมายเหตุ: เป็นบัญชีจากประวัติที่บอทอ่านได้ ไม่ใช่สมาชิกทุกคนใน LINE กลุ่ม").slice(0,4850));
-    }catch(err){console.error("Observed group roster failed:",err);await replyMessage(event.replyToken,"ดึงรายชื่อที่บอทจำได้ไม่สำเร็จครับ กรุณาลองใหม่");}
+  if (source.type==="group" && isGroupRosterRequest(userText)) {
+    try { await replyMessage(event.replyToken,await groupRosterReply(scopeId,supabaseRequest)); }
+    catch(err){console.error("Group roster failed:",err);await replyMessage(event.replyToken,"ดึงรายชื่อกลุ่มไม่สำเร็จครับ กรุณาลองใหม่");}
     return;
   }
   // Shared knowledge is private staging only. No cross-group reads or writes.
@@ -1504,8 +1490,42 @@ async function maybeReturnKnownFile(text, scopeId, displayName, requestUserId) {
   }catch(err){console.error("File retrieval:",err);return `${displayName||"พี่"}ครับ พบไฟล์ “${chosen.file_name}” แต่สร้างลิงก์ไม่สำเร็จ กรุณาลองใหม่ครับ`}
 }
 
+function isGroupRosterRequest(text) {
+  const t=String(text||"");
+  return /รายชื่อที่จำได้|สมาชิกที่รู้จัก|ชื่อเล่นสมาชิกที่จำได้|รายชื่อสมาชิก|รายชื่อ.*(?:กลุ่ม|สมาชิก)/u.test(t)
+    || /(?:สมาชิก|คนในกลุ่ม|ใคร).*(?:ชื่ออะไร|ชื่อว่าอะไร|ชื่อ.*บ้าง)/u.test(t)
+    || /(?:กลุ่มนี้|ในกลุ่ม|ไลน์กลุ่ม).*(?:มีใคร|มีสมาชิก|รายชื่อ)/u.test(t);
+}
+async function groupRosterReply(scopeId,supabaseRequest) {
+  const history=(await supabaseRequest("line_messages?select=line_user_id,display_name&scope_id=eq."+encodeURIComponent(scopeId)+"&role=eq.user&order=created_at.desc&limit=500",{method:"GET"}))||[];
+  const direct=(await supabaseRequest("line_members?select=line_user_id,display_name,ttm_name&scope_id=eq."+encodeURIComponent(scopeId)+"&limit=250",{method:"GET"}))||[];
+  const unique=new Map();
+  for(const m of direct)if(m.line_user_id)unique.set(m.line_user_id,{profile:m.display_name||"",alias:m.ttm_name||""});
+  for(const m of history){
+    if(!m.line_user_id||unique.has(m.line_user_id))continue;
+    const rows=(await supabaseRequest("line_members?select=ttm_name,display_name&line_user_id=eq."+encodeURIComponent(m.line_user_id)+"&limit=1",{method:"GET"}))||[];
+    unique.set(m.line_user_id,{profile:rows[0]?.display_name||m.display_name||"ไม่ทราบโปรไฟล์",alias:rows[0]?.ttm_name||""});
+  }
+  // Names confirmed by the administrator are a roster, not verified LINE IDs.
+  const memories=(await supabaseRequest("line_memories?select=metadata&scope_id=eq."+encodeURIComponent(scopeId)+"&metadata->>kind=eq.admin_confirmed_group_nicknames&order=created_at.desc&limit=1",{method:"GET"}))||[];
+  const confirmed=Array.isArray(memories[0]?.metadata?.mapping)?memories[0].metadata.mapping:[];
+  const roster=[...unique.values()];
+  const normalize=x=>String(x||"").trim().toLocaleLowerCase();
+  const linked=[];
+  for(const m of roster){
+    const match=confirmed.filter(x=>normalize(x.display_name)===normalize(m.profile));
+    if(!m.alias&&match.length===1)m.alias=match[0].nickname;
+    linked.push(m);
+  }
+  const pending=confirmed.filter(m=>!linked.some(x=>normalize(x.profile)===normalize(m.display_name)));
+  const lines=linked.map((m,i)=>(i+1)+". "+m.profile+" → "+(m.alias?honorificName(m.alias):"ยังไม่ได้ตั้งชื่อเล่น"));
+  let answer="📋 รายชื่อที่อาร์ตรู้จักในกลุ่มนี้\n"+(lines.join("\n")||"ยังไม่มีบัญชีที่ยืนยันจากประวัติ");
+  if(pending.length)answer+="\n\nรายชื่อที่พี่ตั้งไว้ (ยังไม่ยืนยันรหัสบัญชี):\n"+pending.map((m,i)=>(linked.length+i+1)+". "+m.display_name+" → "+honorificName(m.nickname)).join("\n");
+  return (answer+"\n\nรายชื่อนี้มาจากประวัติและชื่อที่ผู้ดูแลตั้งไว้ อาจยังไม่ครบสมาชิกทั้งหมดของ LINE กลุ่ม").slice(0,4800);
+}
+
 function directIdentityReply(text, displayName) {
-  if (!displayName) return null;
+  if (!displayName || isGroupRosterRequest(text)) return null;
   const t = (text || "").trim();
   // Identity questions must be answered from the LINE sender profile, not inferred by the model.
   if (/(ผม|ฉัน|หนู|เรา|พี่)?\s*ชื่อ\s*(อะไร|ว่าอะไร)|ชื่อผม|ชื่อฉัน|ชื่อหนู|รู้จักผมไหม|รู้จักฉันไหม|จำผมได้ไหม|จำฉันได้ไหม/i.test(t)) {
