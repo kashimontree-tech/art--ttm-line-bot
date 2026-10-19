@@ -886,11 +886,18 @@ async function processTextEvent(event) {
       return;
     }
   }
+  // Read confirmed account-bound biographies before the name-only shortcuts.
+  if (tagged.length<=1) {
+    const identityAnswer=await require("./member-identity").identityReply({
+      scopeId,senderId:userId,targetId:tagged[0]?.userId,text:userText,request:supabaseRequest
+    }).catch(err=>{console.error("Confirmed identity lookup failed:",err.message);return null;});
+    if(identityAnswer){await replyMessage(event.replyToken,identityAnswer);return;}
+  }
   if (tagged.length===1 && /(?:อาร์ต|art)/iu.test(userText) && /(?:คนนี้|นี่ใคร|เป็นใคร|คือใคร|นี่คือใคร|ใครอ่ะ|ใครอะ)/u.test(userText)){
     const taggedId=tagged[0].userId;
     const known=(await supabaseRequest("line_members?select=ttm_name,display_name&line_user_id=eq."+encodeURIComponent(taggedId)+"&limit=1",{method:"GET"}))||[];
     const profile=await getLineProfile(source,taggedId);
-    const named=known[0]?.ttm_name||knownMemberAlias(profile?.displayName)||knownMemberAlias(known[0]?.display_name)||known[0]?.display_name||profile?.displayName;
+    const named=(await confirmedGroupAlias(scopeId,taggedId,profile?.displayName||known[0]?.display_name))||known[0]?.ttm_name||knownMemberAlias(profile?.displayName)||knownMemberAlias(known[0]?.display_name)||known[0]?.display_name||profile?.displayName;
     console.log("Tagged identity resolved:",{hasSavedAlias:!!known[0]?.ttm_name,hasProfile:!!profile?.displayName});
     await replyMessage(event.replyToken,named?"บัญชีที่พี่แท็กคือ "+honorificName(named)+" ครับ":"ยังไม่ทราบชื่อเรียกของบัญชีนี้ครับ");
     return;
@@ -904,7 +911,7 @@ async function processTextEvent(event) {
       const id=tagged[0].userId;
       const rows=(await supabaseRequest("line_members?select=ttm_name,display_name&line_user_id=eq."+encodeURIComponent(id)+"&limit=1",{method:"GET"}))||[];
       const profile=await getLineProfile(source,id);
-      const resolved=rows[0]?.ttm_name||knownMemberAlias(profile?.displayName)||rows[0]?.display_name||profile?.displayName;
+      const resolved=(await confirmedGroupAlias(scopeId,id,profile?.displayName||rows[0]?.display_name))||rows[0]?.ttm_name||knownMemberAlias(profile?.displayName)||rows[0]?.display_name||profile?.displayName;
       await replyMessage(event.replyToken,resolved
         ? "คนที่พี่แท็กคือ"+honorificName(resolved)+"ครับ"
         : "อาร์ตยังไม่มีชื่อบัญชีที่พี่แท็กครับ กรุณาให้เจ้าของบัญชีส่งข้อความหนึ่งครั้ง");
