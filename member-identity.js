@@ -14,6 +14,8 @@ async function identityReply({scopeId, senderId, targetId, text, request}) {
       m.subject_line_user_id===senderId);
     return self?.exact_answer || null;
   }
+  // A plain identification question should keep the short nickname reply.
+  if (!/ประวัติ/u.test(text)) return null;
   const bound = facts.filter(m=>m.kind==="owner_confirmed_member_bio" &&
     m.subject_line_user_id && m.bio_text);
   const bio = targetId ? bound.find(m=>m.subject_line_user_id===targetId) :
