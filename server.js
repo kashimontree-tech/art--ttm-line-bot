@@ -274,6 +274,24 @@ app.post("/webhook", express.raw({ type: "application/json" }), async (req, res)
   }
 });
 
+// Resolve only the current group's administrator-confirmed roster.
+function nicknameProfileKey(value) {
+  return String(value||"").normalize("NFKC").toLocaleLowerCase()
+    .replace(/[^\p{L}\p{N}]/gu,"");
+}
+async function confirmedGroupAlias(scopeId,userId,profileName) {
+  if(!String(scopeId||"").startsWith("group:"))return null;
+  const rows=await supabaseRequest("line_memories?select=metadata&scope_id=eq."+encodeURIComponent(scopeId)+"&metadata->>kind=eq.admin_confirmed_group_nicknames&order=created_at.desc&limit=1",{method:"GET"});
+  const mapping=Array.isArray(rows?.[0]?.metadata?.mapping)?rows[0].metadata.mapping:[];
+  const bound=mapping.filter(m=>m.line_user_id&&m.line_user_id===userId);
+  if(bound.length===1)return String(bound[0].nickname||"").trim()||null;
+  const key=nicknameProfileKey(profileName);
+  if(!key)return null;
+  const matches=mapping.filter(m=>!m.line_user_id&&[m.display_name,...(Array.isArray(m.profile_aliases)?m.profile_aliases:[])].some(n=>nicknameProfileKey(n)===key));
+  if(matches.length!==1)return null;
+  return String(matches[0].nickname||"").trim()||null;
+}
+
 function knownMemberAlias(profileName) {
   // Owner-confirmed alias for the unique Kanokkorn LINE account in TTM group.
   // Match only the identifiable LINE profile label, not face recognition.
@@ -810,7 +828,8 @@ async function processTextEvent(event) {
   const lineProfile = await getLineProfile(source,userId);
   const rawDisplayName = lineProfile?.displayName||null;
   const savedMember = userId ? await supabaseRequest("line_members?select=ttm_name&line_user_id=eq."+encodeURIComponent(userId)+"&limit=1",{method:"GET"}).catch(()=>[]) : [];
-  const preferredName=String(savedMember?.[0]?.ttm_name||knownMemberAlias(rawDisplayName)||"").trim();
+  const groupPreferred=await confirmedGroupAlias(scopeId,userId,rawDisplayName).catch(err=>{console.error("Group nickname lookup failed:",err.message);return null;});
+  const preferredName=String(groupPreferred||savedMember?.[0]?.ttm_name||knownMemberAlias(rawDisplayName)||"").trim();
   const addressedName=preferredName||rawDisplayName;
   const displayName = honorificName(addressedName);
   let mentionedMembers = [];
@@ -1196,7 +1215,7 @@ async function upsertMember({
   roomId,
 }) {
   if (!userId) return;
-
+  const confirmedAlias=await confirmedGroupAlias(scopeId,userId,displayName);
   const now = new Date().toISOString();
   await supabaseRequest("line_members?on_conflict=line_user_id", {
     method: "POST",
@@ -1207,6 +1226,7 @@ async function upsertMember({
         user_id: userId,
         scope_id: scopeId,
         display_name: displayName,
+        ...(confirmedAlias?{ttm_name:confirmedAlias.replace(/^พี่/,"")}:{}),
         picture_url: pictureUrl || null,
         source_type: sourceType,
         group_id: groupId,
@@ -1500,24 +1520,24 @@ async function groupRosterReply(scopeId,supabaseRequest) {
   const history=(await supabaseRequest("line_messages?select=line_user_id,display_name&scope_id=eq."+encodeURIComponent(scopeId)+"&role=eq.user&order=created_at.desc&limit=500",{method:"GET"}))||[];
   const direct=(await supabaseRequest("line_members?select=line_user_id,display_name,ttm_name&scope_id=eq."+encodeURIComponent(scopeId)+"&limit=250",{method:"GET"}))||[];
   const unique=new Map();
-  for(const m of direct)if(m.line_user_id)unique.set(m.line_user_id,{profile:m.display_name||"",alias:m.ttm_name||""});
+  for(const m of direct)if(m.line_user_id)unique.set(m.line_user_id,{id:m.line_user_id,profile:m.display_name||"",alias:m.ttm_name||""});
   for(const m of history){
     if(!m.line_user_id||unique.has(m.line_user_id))continue;
     const rows=(await supabaseRequest("line_members?select=ttm_name,display_name&line_user_id=eq."+encodeURIComponent(m.line_user_id)+"&limit=1",{method:"GET"}))||[];
-    unique.set(m.line_user_id,{profile:rows[0]?.display_name||m.display_name||"ไม่ทราบโปรไฟล์",alias:rows[0]?.ttm_name||""});
+    unique.set(m.line_user_id,{id:m.line_user_id,profile:rows[0]?.display_name||m.display_name||"ไม่ทราบโปรไฟล์",alias:rows[0]?.ttm_name||""});
   }
   // Names confirmed by the administrator are a roster, not verified LINE IDs.
   const memories=(await supabaseRequest("line_memories?select=metadata&scope_id=eq."+encodeURIComponent(scopeId)+"&metadata->>kind=eq.admin_confirmed_group_nicknames&order=created_at.desc&limit=1",{method:"GET"}))||[];
   const confirmed=Array.isArray(memories[0]?.metadata?.mapping)?memories[0].metadata.mapping:[];
   const roster=[...unique.values()];
-  const normalize=x=>String(x||"").trim().toLocaleLowerCase();
+  const normalize=nicknameProfileKey;
   const linked=[];
   for(const m of roster){
-    const match=confirmed.filter(x=>normalize(x.display_name)===normalize(m.profile));
+    const match=confirmed.filter(x=>(x.line_user_id?x.line_user_id===m.id:[x.display_name,...(x.profile_aliases||[])].some(n=>normalize(n)===normalize(m.profile))));
     if(!m.alias&&match.length===1)m.alias=match[0].nickname;
     linked.push(m);
   }
-  const pending=confirmed.filter(m=>!linked.some(x=>normalize(x.profile)===normalize(m.display_name)));
+  const pending=confirmed.filter(m=>!linked.some(x=>m.line_user_id?m.line_user_id===x.id:[m.display_name,...(m.profile_aliases||[])].some(n=>normalize(x.profile)===normalize(n))));
   const lines=linked.map((m,i)=>(i+1)+". "+m.profile+" → "+(m.alias?honorificName(m.alias):"ยังไม่ได้ตั้งชื่อเล่น"));
   let answer="📋 รายชื่อที่อาร์ตรู้จักในกลุ่มนี้\n"+(lines.join("\n")||"ยังไม่มีบัญชีที่ยืนยันจากประวัติ");
   if(pending.length)answer+="\n\nรายชื่อที่พี่ตั้งไว้ (ยังไม่ยืนยันรหัสบัญชี):\n"+pending.map((m,i)=>(linked.length+i+1)+". "+m.display_name+" → "+honorificName(m.nickname)).join("\n");
