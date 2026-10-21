@@ -1,6 +1,6 @@
 "use strict";
 
-const VERSION = "knowledge-updates-20261018-v3";
+const VERSION = "document-followup-20261021-v1";
 const MAX_BYTES = 16 * 1024 * 1024;
 
 async function loadContextParts(loaders, log = console.error) {

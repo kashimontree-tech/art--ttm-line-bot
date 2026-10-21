@@ -1,6 +1,10 @@
 "use strict";
 const {splitLineText} = require("./assistant-context");
 
+function wantsJobFollowup(text) {
+  return /งานล่าสุด|สถานะงาน|เช็คงาน|ตรวจงาน|เสร็จ(?:หรือ)?ยัง|เสร็จแล้ว(?:หรือ|รึ)?ยัง|(?:ทำ)?เสร็จ(?:แล้ว)?ส่ง|ส่ง(?:ไฟล์)?มาเลย|ส่ง(?:ไฟล์)?ให้(?:พี่|ผม)?เลย|ขอ(?:ไฟล์|ผลลัพธ์)?งานล่าสุด/u.test(String(text||""));
+}
+
 function lineTarget(scope) {
   const match=String(scope).match(/^(?:group:(C[a-f0-9]{32})|room:(R[a-f0-9]{32})|user:(U[a-f0-9]{32}))$/i);
   if(!match)throw Error("Invalid LINE job scope");
@@ -67,6 +71,22 @@ function createJobQueue({supabaseRequest,handlers,token,fetchImpl=fetch,log=cons
     return rows.length?rows.map(x=>x.kind+" • "+names[x.status]+" • "+x.id+"\nสถานะส่ง LINE: "+x.delivery_status+
       (x.status==="completed"&&x.result?.fileName?"\nไฟล์: "+x.result.fileName+" — ขอไฟล์จากคลังด้วยชื่อนี้ได้ครับ":"")).join("\n\n"):"ยังไม่มีงานสร้างไฟล์หรือภาพในกลุ่มนี้ครับ";
   }
-  return {enqueue,tick,status};
+  async function followup(scopeId,requesterId) {
+    lineTarget(scopeId);
+    if(!requesterId)throw Error("Missing job requester");
+    const rows=await supabaseRequest("ttm_ai_jobs?select=id,status,result,error_detail,created_at&scope_id=eq."+encodeURIComponent(scopeId)+
+      "&requester_id=eq."+encodeURIComponent(requesterId)+"&order=created_at.desc&limit=1",{method:"GET"})||[];
+    const job=rows[0];
+    if(!job)return splitLineText("ยังไม่พบงานที่พี่สั่งไว้ในห้องนี้ครับ กรุณาระบุชนิดไฟล์และรายละเอียดที่ต้องการ");
+    if(job.status==="completed"&&job.result?.messages?.length){
+      if(job.result.url&&Date.now()-Date.parse(job.created_at)>23*3600000){
+        return splitLineText("งานนี้สร้างเสร็จแล้วครับ ไฟล์: "+(job.result.fileName||"")+"\nลิงก์เดิมอาจหมดอายุ กรุณาขอไฟล์จากคลังด้วยชื่อไฟล์นี้ครับ");
+      }
+      return job.result.messages;
+    }
+    const state={queued:"งานยังอยู่ในคิวครับ",running:"อาร์ตกำลังทำงานนี้อยู่ครับ เมื่อเสร็จระบบจะส่งผลกลับห้องนี้",needs_review:"งานสะดุดระหว่างประมวลผล ต้องตรวจสอบก่อนทำซ้ำครับ",failed:/timeout|aborted/i.test(job.error_detail||"")?"งานหมดเวลาประมวลผล ยังไม่ได้สร้างไฟล์สำเร็จครับ กรุณาสั่งสร้างไฟล์อีกครั้งพร้อมรายละเอียดเดิม":"งานยังไม่สำเร็จครับ กรุณาสั่งใหม่พร้อมรายละเอียดเดิม"};
+    return splitLineText((state[job.status]||"ยังตรวจผลลัพธ์งานนี้ไม่ได้ครับ")+"\nรหัสงาน "+job.id);
+  }
+  return {enqueue,tick,status,followup};
 }
-module.exports={createJobQueue,lineTarget};
+module.exports={createJobQueue,lineTarget,wantsJobFollowup};

@@ -993,6 +993,13 @@ async function processTextEvent(event) {
     await replyMessage(event.replyToken,await getAiJobs().status(scopeId));return;
   }
   const format=documentTools.requestedDocument(userText);
+  // A short follow-up must inspect the stored job, never ask the chat model
+  // to guess whether a file exists or whether it can create one.
+  if(!format&&require("./background-jobs").wantsJobFollowup(userText)){
+    try{await replyMessages(event.replyToken,await getAiJobs().followup(scopeId,userId));}
+    catch(error){console.error("AI job follow-up failed",error.message);await replyMessage(event.replyToken,"ยังตรวจสถานะงานไม่ได้ครับ กรุณาพิมพ์ ‘อาร์ต งานล่าสุด’ อีกครั้ง");}
+    return;
+  }
   const imageEditCommand = /(?:แก้|ปรับ|ตกแต่ง|แต่ง|จัดหน้า|เพิ่ม|เปลี่ยน|ทำให้).{0,90}(?:รูป|ภาพ|โลโก้|สี|พื้นหลัง|แบบ)|(?:รูป|ภาพ).{0,90}(?:แก้|ปรับ|แต่ง)/iu.test(String(userText||""));
   const jobKind=format?"document":generationTools.wantsWebSearch(userText)?"web":generationTools.wantsVideo(userText)?"video":generationTools.wantsTranscription(userText)?"audio":(imageEditCommand||generationTools.wantsNewImage(userText))?"image":null;
   if(jobKind){
@@ -1662,6 +1669,10 @@ function extractOutputText(data) {
 }
 
 async function replyMessage(replyToken, text) {
+  return replyMessages(replyToken,assistantContext.splitLineText(text));
+}
+
+async function replyMessages(replyToken, messages) {
   const response = await fetch("https://api.line.me/v2/bot/message/reply", {
     method: "POST",
     headers: {
@@ -1670,7 +1681,7 @@ async function replyMessage(replyToken, text) {
     },
     body: JSON.stringify({
       replyToken,
-      messages: assistantContext.splitLineText(text),
+      messages: messages.slice(0,5),
     }),
   });
 

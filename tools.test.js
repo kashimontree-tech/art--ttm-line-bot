@@ -98,4 +98,34 @@ test("document API request explicitly asks for JSON in its input",async()=>{
  const handlers=gen.createGenerationHandlers({key:"test",loadContext:async()=>"ข้อมูลทดสอบ",supabaseRequest:async()=>[],downloadSupabaseFile:async()=>Buffer.alloc(0),uploadSupabaseFile:async bytes=>{stored=bytes.subarray(0,2).toString()==="PK";return {bucket:"test",storagePath:"test.docx"}},saveFileMemory:async()=>{},createSupabaseSignedUrl:async()=>"https://example.com/test.docx",fetchImpl:async(url,opts)=>{request=JSON.parse(opts.body);return {ok:true,json:async()=>({status:"completed",output_text:JSON.stringify(spec)})}}});
  const result=await handlers.document({id:"123e4567-e89b-12d3-a456-426614174000",scope_id:scope,requester_id:user,payload:{text:"ทำ Word ทดสอบ",format:"docx"}});
  assert.match(request.input[0].content[0].text,/JSON/i);assert.equal(request.text.format.type,"json_object");assert.ok(stored);assert.ok(result.fileName.endsWith(".docx"));
+ assert.equal(request.reasoning.effort,"low");
+});
+
+test("screenshot follow-up inspects a job instead of falling through to chat",()=>{
+ const {wantsJobFollowup}=require("./background-jobs");
+ assert.ok(wantsJobFollowup("ทำเสร็จส่งมาเลยอาร์ต"));
+ assert.ok(wantsJobFollowup("อาร์ตเสร็จยัง"));
+ assert.ok(wantsJobFollowup("อาร์ต ส่งไฟล์มาเลย"));
+ assert.ok(!wantsJobFollowup("อาร์ต คิดราคางานเฟอร์นิเจอร์"));
+});
+
+test("follow-up returns the actual stored XLSX result without regenerating or pushing",async()=>{
+ const h=queueHarness(200,()=>({fileName:"ทะเบียนแบรนด์.xlsx",url:"https://example.com/register.xlsx",messages:[{type:"text",text:"ทะเบียนแบรนด์.xlsx\nhttps://example.com/register.xlsx"}]}));
+ await h.queue.enqueue({scopeId:scope,requesterId:user,messageId:"followup",kind:"document",payload:{format:"xlsx"}});await h.queue.tick();
+ const before=h.sends.length;
+ assert.deepEqual(await h.queue.followup(scope,user),h.jobs[0].result.messages);
+ assert.equal(h.calls,1);assert.equal(h.sends.length,before);
+});
+
+test("follow-up explains timeouts and scopes reads to the sender and group",async()=>{
+ let query;
+ const q=createJobQueue({token:"test",handlers:{},supabaseRequest:async q=>{query=q;return [{id:"timed-out",status:"failed",error_detail:"The operation was aborted due to timeout"}];}});
+ const messages=await q.followup(scope,user);
+ assert.match(messages[0].text,/หมดเวลา/);assert.match(messages[0].text,/ยังไม่ได้สร้างไฟล์สำเร็จ/);
+ assert.ok(query.includes("scope_id=eq."+encodeURIComponent(scope)));assert.ok(query.includes("requester_id=eq."+user));
+});
+
+test("old file follow-ups do not present an expired URL as a fresh download",async()=>{
+ const q=createJobQueue({token:"test",handlers:{},supabaseRequest:async()=>[{status:"completed",created_at:"2020-01-01",result:{fileName:"old.xlsx",url:"https://example.com/expired",messages:[{type:"text",text:"https://example.com/expired"}]}}]});
+ const messages=await q.followup(scope,user);assert.match(messages[0].text,/old.xlsx/);assert.ok(!messages[0].text.includes("https://example.com/expired"));
 });
