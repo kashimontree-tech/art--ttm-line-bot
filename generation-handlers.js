@@ -105,7 +105,9 @@ function createGenerationHandlers(deps) {
     const saved=await persist(job,{bytes:Buffer.from(transcript,"utf8"),mime:"text/plain;charset=utf-8",fileName:"Transcript_"+job.id.slice(0,8)+".txt",summary:transcript.slice(0,1000)});
     return {...saved,silent:Boolean(p.silent),messages:splitLineText("ถอดเสียงจาก "+row.file_name+" แล้วครับ โปรดตรวจเทียบเสียงต้นฉบับ (ยังไม่วิเคราะห์ภาพในคลิป)\n"+transcript.slice(0,12000)+"\n\nข้อความฉบับเต็ม: "+saved.url)};
   }
+  const analyzeVideo=require("./video-analysis").createVideoAnalyzer({...deps,openai});
   async function video(job) {
+    if(job.payload?.analyze)return analyzeVideo(job);
     const p=job.payload;
     const script=jsonOutput(await (await openai("responses",{
       model:reasoningOptions().model,text:{format:{type:"json_object"}},

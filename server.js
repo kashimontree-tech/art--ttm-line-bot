@@ -167,7 +167,7 @@ function getAiJobs() {
   }
   return aiJobQueue;
 }
-app.get("/health", (req, res) => res.json({ok:true, version:assistantContext.VERSION, reasoningModel:assistantContext.reasoningOptions().model, features:["reasoning","attachment-followup","document-jobs","image-jobs","audio-transcription","public-web-search","narrated-still-video","live-knowledge-updates"]}));
+app.get("/health", (req, res) => res.json({ok:true, version:assistantContext.VERSION, reasoningModel:assistantContext.reasoningOptions().model, features:["reasoning","attachment-followup","document-jobs","image-jobs","audio-transcription","public-web-search","narrated-still-video","video-analysis-v1","live-knowledge-updates"]}));
 
 app.get("/", (req, res) => {
   res.status(200).send("Art TTM LINE Bot is running");
@@ -1001,11 +1001,12 @@ async function processTextEvent(event) {
     return;
   }
   const imageEditCommand = /(?:แก้|ปรับ|ตกแต่ง|แต่ง|จัดหน้า|เพิ่ม|เปลี่ยน|ทำให้).{0,90}(?:รูป|ภาพ|โลโก้|สี|พื้นหลัง|แบบ)|(?:รูป|ภาพ).{0,90}(?:แก้|ปรับ|แต่ง)/iu.test(String(userText||""));
-  const jobKind=format?"document":generationTools.wantsWebSearch(userText)?"web":generationTools.wantsVideo(userText)?"video":generationTools.wantsTranscription(userText)?"audio":(imageEditCommand||generationTools.wantsNewImage(userText))?"image":null;
+  const analyzeClip=require("./video-analysis").wantsVideoAnalysis(userText);
+  const jobKind=analyzeClip?"video":format?"document":generationTools.wantsWebSearch(userText)?"web":generationTools.wantsVideo(userText)?"video":generationTools.wantsTranscription(userText)?"audio":(imageEditCommand||generationTools.wantsNewImage(userText))?"image":null;
   if(jobKind){
     try {
       const job=await getAiJobs().enqueue({scopeId,requesterId:userId,messageId:event.message.id,kind:jobKind,
-        payload:{text:userText,displayName,format,edit:!format&&imageEditCommand,quotedId:event.message.quotedMessageId}});
+        payload:{text:userText,displayName,format,analyze:analyzeClip,edit:!format&&imageEditCommand,quotedId:event.message.quotedMessageId}});
       await replyMessage(event.replyToken,job
         ? `${displayName||"พี่"}ครับ รับงานแล้ว รหัส ${job.id}\nอาร์ตจะส่งผลกลับในห้องนี้เมื่อเสร็จ ตรวจด้วย “อาร์ต งานล่าสุด” ได้ครับ`
         : "คำสั่งนี้อยู่ในคิวแล้วครับ พิมพ์ ‘อาร์ต งานล่าสุด’ เพื่อตรวจสถานะ");
