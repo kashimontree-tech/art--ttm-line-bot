@@ -53,3 +53,18 @@ test("PDF is passed as original bytes, not a summary",async()=>{
   const result=await a.loadRelevantAttachments({scopeId:"group:a",text:"อาร์ตอ่าน a.pdf",supabaseRequest:async()=>[row("a.pdf","1")],downloadSupabaseFile:async()=>Buffer.from("%PDF-test")});
   assert.equal(result[1].type,"input_file");assert.match(result[1].file_data,/^data:application\/pdf;base64,/);
 });
+test("image followup skips a newer PDF",()=>{
+  assert.equal(a.selectAttachments([row("new.pdf","2"),row("photo.jpg","1")],"อาร์ตอ่านข้อความในรูป")[0].line_message_id,"1");
+});
+test("cached original remains readable during storage outage and respects quote",async()=>{
+  const cachedFiles=[{fileName:"photo.jpg",mime:"image/jpeg",bytes:Buffer.from("original"),savedAt:Date.now(),lineMessageId:"photo"}];
+  const args={scopeId:"group:a",text:"อาร์ตคิดเห็นข้อความในรูปยังไง",quotedId:"photo",cachedFiles,supabaseRequest:async()=>{throw Error("offline")}};
+  const result=await a.loadRelevantAttachments(args);
+  assert.equal(result[1].type,"input_image");
+  assert.equal(result[1].image_url,"data:image/jpeg;base64,b3JpZ2luYWw=");
+  const missing=await a.loadRelevantAttachments({...args,quotedId:"other"});
+  assert.ok(missing.every(x=>x.type==="input_text"));
+});
+test("expired cache is not used when persistence fails",async()=>{
+  await assert.rejects(a.loadRelevantAttachments({scopeId:"group:a",text:"อ่านรูป",cachedFiles:[{savedAt:Date.now()-3600001}],supabaseRequest:async()=>{throw Error("offline")}}),/offline/);
+});
