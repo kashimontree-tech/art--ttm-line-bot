@@ -27,10 +27,10 @@ app.get("/download/:token", (req, res) => {
   return res.send(item.bytes);
 });
 
-function cacheLiveFile(scopeId, fileName, mime, bytes) {
+function cacheLiveFile(scopeId, fileName, mime, bytes, lineMessageId = null) {
   const key = String(scopeId || "unknown");
   const list = liveFileCache.get(key) || [];
-  list.unshift({ fileName, mime, bytes, savedAt: Date.now() });
+  list.unshift({ fileName, mime, bytes, lineMessageId, savedAt: Date.now() });
   liveFileCache.set(key, list.slice(0, 20));
 }
 
@@ -524,7 +524,7 @@ async function processImageEvent(event, silent = false) {
     if (bytes.length > 15 * 1024 * 1024) throw new Error("Image too large");
     const imageExt = mime === "image/png" ? "png" : mime === "image/webp" ? "webp" : "jpg";
     const imageFileName = `LINE_image_${event.message.id}.${imageExt}`;
-    cacheLiveFile(scopeId, imageFileName, mime, bytes);
+    cacheLiveFile(scopeId, imageFileName, mime, bytes, event.message.id);
     try {
       storedImage = await uploadSupabaseFile(bytes, scopeId, event.message.id, imageFileName, mime);
       await saveFileMemory({ scopeId, userId, displayName: rawName, source, fileName: imageFileName, lineMessageId: event.message.id, openaiFileId: null, mime, summary: "รูปภาพ/เอกสารจาก LINE", storageBucket: storedImage.bucket, storagePath: storedImage.storagePath });
@@ -1615,7 +1615,8 @@ async function askOpenAI(userText, recentContext, memberContext, longTermMemory,
   ].filter(Boolean).join("\n\n");
 
   const attachmentContent = await assistantContext.loadRelevantAttachments({
-    ...attachmentRequest, text:userText, supabaseRequest, downloadSupabaseFile, XLSX
+    ...attachmentRequest, text:userText, supabaseRequest, downloadSupabaseFile, XLSX,
+    cachedFiles: liveFileCache.get(String(attachmentRequest.scopeId || "unknown")) || []
   }).catch(error => {
     console.error("Assistant attachment context failed", error.message);
     return [{type:"input_text",text:"โหลดต้นฉบับไม่สำเร็จ ห้ามอ้างว่าอ่านต้นฉบับแล้ว"}];
