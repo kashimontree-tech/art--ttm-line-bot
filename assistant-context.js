@@ -1,6 +1,6 @@
 "use strict";
 
-const VERSION = "document-followup-20261021-v1";
+const VERSION = "image-followup-20261025-v2";
 const MAX_BYTES = 16 * 1024 * 1024;
 
 async function loadContextParts(loaders, log = console.error) {
@@ -20,11 +20,14 @@ function reasoningOptions(env = process.env) {
 }
 
 function selectAttachments(rows, text, quotedId) {
-  const list = rows.filter(x => x.file_name && x.storage_bucket && x.storage_path);
+  let list = rows.filter(x => x.file_name && ((x.storage_bucket && x.storage_path) || x.bytes));
   if (quotedId) return list.filter(x => String(x.line_message_id) === String(quotedId)).slice(0, 1);
   const explicit = String(text).match(/[^\s“”"'<>]+\.(?:pdf|xlsx|xls|csv|png|jpe?g|webp|txt)/gi);
   if (explicit) return list.filter(x => explicit.some(n => x.file_name.toLowerCase() === n.toLowerCase())).slice(0, 4);
   if (!/(รูป|ภาพ|ไฟล์|เอกสาร|แนบ|ตาราง|แบบนี้|อันนี้|เมื่อกี้)/i.test(text)) return [];
+  if (/(รูป|ภาพ)/.test(text) && !/(ไฟล์|เอกสาร)/.test(text)) {
+    list = list.filter(x => /^image\//i.test(x.mime_type || ""));
+  }
   const multiple = /(เทียบ|เปรียบ|ทั้งหมด|ทุกรูป|ทุกไฟล์|ทั้งสอง|หลายรูป)/.test(text);
   // Only co-select recent uploads from the same batch; never silently mix old projects.
   const newest = Date.parse(list[0]?.created_at);
@@ -32,19 +35,29 @@ function selectAttachments(rows, text, quotedId) {
     .slice(0, multiple ? 4 : 1);
 }
 
-async function loadRelevantAttachments({scopeId, text, quotedId, supabaseRequest, downloadSupabaseFile, XLSX}) {
+async function loadRelevantAttachments({scopeId, text, quotedId, supabaseRequest, downloadSupabaseFile, XLSX, cachedFiles = []}) {
   if (!scopeId || scopeId === "unknown") return [];
   if (!quotedId && !/(รูป|ภาพ|ไฟล์|เอกสาร|แนบ|ตาราง|แบบนี้|อันนี้|เมื่อกี้|\.(pdf|xlsx|csv))/i.test(text)) return [];
   let query = "line_memories?select=file_name,mime_type,storage_bucket,storage_path,created_at,line_message_id" +
     "&scope_id=eq." + encodeURIComponent(scopeId) + "&message_type=eq.file";
   if (quotedId) query += "&line_message_id=eq." + encodeURIComponent(quotedId);
-  const rows = await supabaseRequest(query + "&order=created_at.desc&limit=60", {method:"GET"}) || [];
-  const chosen = selectAttachments(rows, text, quotedId);
+  const cached = cachedFiles.filter(x => x.savedAt > Date.now() - 60 * 60 * 1000).map(x => ({
+    file_name:x.fileName, mime_type:x.mime, bytes:x.bytes,
+    line_message_id:x.lineMessageId, created_at:new Date(x.savedAt).toISOString()
+  }));
+  let rows = [];
+  try { rows = await supabaseRequest(query + "&order=created_at.desc&limit=60", {method:"GET"}) || []; }
+  catch (error) { if (!cached.length) throw error; }
+  // Prefer original bytes already received in this scope, even before storage completes.
+  const names = new Set(cached.map(x => x.file_name));
+  const merged = [...cached, ...rows.filter(x => !names.has(x.file_name))]
+    .sort((a,b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+  const chosen = selectAttachments(merged, text, quotedId);
   const content = [];
   let usedBytes = 0;
   for (const row of chosen) {
     try {
-      const bytes = await downloadSupabaseFile(row.storage_bucket, row.storage_path);
+      const bytes = row.bytes || await downloadSupabaseFile(row.storage_bucket, row.storage_path);
       if (!bytes?.length || bytes.length + usedBytes > MAX_BYTES) {
         content.push({type:"input_text",text:`ไม่ได้อ่านต้นฉบับ ${row.file_name}: เกินขนาดที่รองรับในคำถามนี้`});
         continue;
