@@ -464,7 +464,13 @@ async function processFileEvent(event, silent = false) {
     console.error("LINE file permanent archive/index failed:",error);
     try{await markAttachment(event,"failed",fileName,stored?.storagePath,error.message)}catch(e){console.error("Receipt audit failed:",e)}
   }
-  try {
+  // LINE can deliver videos/audio as generic file messages. Never send those
+  // bytes through the document input_file path (which rejects these formats).
+  const mediaDocument = /^(?:video|audio)\//i.test(mime || "") ||
+    /\.(?:mp4|mov|m4v|webm|avi|mkv|mp3|m4a|wav|ogg|aac|flac)$/i.test(fileName);
+  if (mediaDocument) {
+    await markImageAnalysis(event,"failed","Audio/video sent as file is not supported by the document reader; no OpenAI request made.");
+  } else try {
     const uploaded = await uploadOpenAIFile(bytes,fileName,mime);
     const response = await fetch("https://api.openai.com/v1/responses", {
       method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${CLEAN_OPENAI_KEY}`},
@@ -478,7 +484,11 @@ async function processFileEvent(event, silent = false) {
     if(!response.ok)throw Error(`OpenAI read ${response.status}: ${await response.text()}`);
     summary=extractOutputText(await response.json())||"";
     if(indexed && summary)await knowledgeUpdates.updateAttachmentSummary({scopeId,messageId:event.message.id,summary,supabaseRequest});
-  } catch(error){console.error("LINE file analysis failed (archive retained):",error);}
+    await markImageAnalysis(event,summary ? "read" : "failed",summary ? "Document analysis completed" : "Document reader returned empty text");
+  } catch(error){
+    console.error("LINE file analysis failed (archive retained):",error);
+    await markImageAnalysis(event,"failed",error.message);
+  }
   try {
     await saveMessage({lineMessageId:event.message.id||null,scopeId,userId,displayName:rawName,groupId:source.groupId||null,messageType:"file",text:`[ไฟล์: ${fileName}] ${summary||"ยังไม่สรุปเนื้อหา"}`,role:"user"});
   }catch(error){console.error("File message log failed:",error);}
