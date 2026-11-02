@@ -1786,6 +1786,7 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Art TTM server running on port ${PORT}`);
   setInterval(()=>void getAiJobs().tick(),15000).unref();
+  setTimeout(()=>syncOwnerRequestedRosters20261103().catch(e=>console.error("Owner roster sync failed",e.message)),5000).unref();
   setTimeout(()=>void getAiJobs().tick(),2000).unref();
   // Explicit owner request: announce verified capabilities once to each
   // registered group, storing delivery receipts. Never run twice per group.
@@ -1802,3 +1803,44 @@ app.listen(PORT, () => {
     openaiKeyAscii: /^[\x20-\x7E]+$/.test(CLEAN_OPENAI_KEY)
   });
 });
+
+
+async function syncOwnerRequestedRosters20261103(){
+ const kind="owner_roster_sync_20261103_v1";
+ const groups=await supabaseRequest("ttm_group_registry?select=scope_id,group_name",{method:"GET"})||[];
+ for(const g of groups){
+  if(!/^group:C[a-f0-9]{32}$/i.test(g.scope_id))continue;
+  const old=await supabaseRequest("line_memories?select=id&scope_id=eq."+encodeURIComponent(g.scope_id)+"&metadata->>kind=eq."+kind+"&limit=1",{method:"GET"});
+  if(old?.length)continue;
+  const gid=g.scope_id.slice(6), people=new Map();let listStatus=null,complete=false,profileFailures=0;
+  const api=async path=>{const r=await fetch("https://api.line.me/v2/bot/"+path,{headers:{Authorization:"Bearer "+CLEAN_LINE_TOKEN},signal:AbortSignal.timeout(12000)});if(!r.ok){const e=Error("LINE HTTP "+r.status);e.status=r.status;throw e;}return r.json();};
+  try{
+   let next=null;const seen=new Set();
+   do{
+    const page=await api("group/"+gid+"/members/ids"+(next?"?start="+encodeURIComponent(next):""));listStatus=200;
+    if(!Array.isArray(page.memberIds))throw Error("Invalid member list");
+    for(const id of page.memberIds){
+     if(!/^U[a-f0-9]{32}$/i.test(id))continue;
+     try{const p=await api("group/"+gid+"/member/"+id);people.set(id,{line_user_id:id,display_name:p.displayName||"",source:"live_line_profile"});}
+     catch(e){profileFailures++;people.set(id,{line_user_id:id,display_name:"",source:"live_line_member_id"});}
+    }
+    next=page.next||null;if(next&&seen.has(next))throw Error("Repeated pagination cursor");if(next)seen.add(next);
+   }while(next);
+   complete=profileFailures===0;
+  }catch(e){listStatus=e.status||listStatus||"transport_error";}
+  const stored=await supabaseRequest("line_members?select=line_user_id,display_name,ttm_name&scope_id=eq."+encodeURIComponent(g.scope_id),{method:"GET"})||[];
+  const history=await supabaseRequest("line_messages?select=line_user_id,display_name&scope_id=eq."+encodeURIComponent(g.scope_id)+"&role=eq.user&order=created_at.desc&limit=1000",{method:"GET"})||[];
+  const roster=(await supabaseRequest("line_memories?select=metadata&scope_id=eq."+encodeURIComponent(g.scope_id)+"&metadata->>kind=eq.admin_confirmed_group_nicknames&order=created_at.desc&limit=1",{method:"GET"}))?.[0]?.metadata?.mapping||[];
+  // Historical accounts are not proof of current membership.
+  const historical=new Map();
+  for(const m of [...stored,...history])if(/^U[a-f0-9]{32}$/i.test(m.line_user_id||"")&&!historical.has(m.line_user_id))historical.set(m.line_user_id,{...m,source:"historical_group_evidence"});
+  const known=complete?[...people.values()]:[...new Map([...historical,...people]).values()];
+  for(const m of known){
+   const match=roster.filter(x=>x.line_user_id?x.line_user_id===m.line_user_id:!x.profile_name_incomplete&&nicknameProfileKey(x.display_name)===nicknameProfileKey(m.display_name));
+   if(match.length===1)m.nickname=match[0].nickname;
+  }
+  const metadata={kind,group_name:g.group_name,list_http_status:listStatus,complete,profile_failures:profileFailures,live_count:people.size,known_count:known.length,history_limited:history.length===1000,members:known,checked_at:new Date().toISOString()};
+  await supabaseRequest("line_memories",{method:"POST",prefer:"return=minimal",body:JSON.stringify([{scope_id:g.scope_id,group_id:gid,source_type:"group",message_type:"memory",text_content:"Owner-requested member inventory; live and historical evidence distinguished.",metadata}])});
+  console.log("Owner roster sync",g.group_name,listStatus,known.length,complete);
+ }
+}
