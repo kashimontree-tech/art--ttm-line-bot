@@ -37,4 +37,13 @@ Run `node --test assistant-context.test.js tools.test.js knowledge-updates.test.
 
 New LINE file/image analyses are patched back to their existing scoped archive records after successful reading. Explicit work facts and corrections enter scoped long-term memory with timestamps. Questions are not treated as new financial facts, and mention parsing no longer invents relationships. Shared sources retain their versions and only the newest source revision is loaded.
 
-The owner separately enabled an hourly ChatGPT automation to check authorized corporate Library updates and real capability evidence. This is hourly source checking, not a real-time export of all ChatGPT conversations. The capability command reports evidence from the requesting room and excludes internal tests and silent processing. It distinguishes LINE accepting a send request from the user opening or verifying a file.
+The owner separately enabled a weekly Friday ChatGPT automation to check authorized corporate Library updates and real capability evidence. This is weekly source checking, not a real-time export of all ChatGPT conversations. The capability command reports evidence from the requesting room and excludes internal tests and silent processing. It distinguishes LINE accepting a send request from the user opening or verifying a file.
+
+
+## 3 November 2026 maintenance release
+
+Code release `4d5ebb50e740373518dfaa507d6e4f6c903a44cc` was deployed and its public health response verified. Generic audio/video file messages are no longer sent to the document reader, and document read/failed results are audited without replaying paid analysis. Ordinary-conversation web search is opt-in through `TTM_CONVERSATION_WEB_SEARCH=1`; it remains off by default to avoid introducing extra search calls. The existing explicit research command is a separate operation. Startup slip audits additionally require `TTM_SANMAI_AUDIT_STARTUP_APPROVED=1` and must not be enabled without reviewing cost and authorization.
+
+`node --test release-notice.test.js` passed six internal mock tests, including media preservation/auditing, insufficient quota, inaccessible groups, public-release verification, duplicate suppression, and no automatic retry after a rejected send. These tests made no real OpenAI or LINE calls and do not certify model accuracy or end-to-end user commands.
+
+The owner-authorized release notice reads only explicitly queued recipients, verifies current group access and available quota, checks the public release before sending, and records LINE's acceptance separately from actual opening or capability validation. Claimed sends are not automatically replayed. A release notice is not a successful test of every advertised command. Existing capability boundaries above still apply.
