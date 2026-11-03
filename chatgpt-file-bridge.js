@@ -36,8 +36,9 @@ function createBridge(deps, config = process.env) {
     {name:'list_files',description:'List stored originals in one allowed group, newest first. Page with offset; filter filenames with query.',inputSchema:schema({query:{type:'string',maxLength:200},offset:{type:'integer',minimum:0},limit:{type:'integer',minimum:1,maximum:100}})},
     {name:'get_file',description:'Get a 15-minute download link to a stored LINE original. Download and save separately through ChatGPT Library; this tool does not save to Library.',inputSchema:schema({id:{type:'string'}},['id'])},
     {name:'import_file',description:'Store a ChatGPT file in the TTM app archive for the specified group, without sending to LINE. Base64 bytes, up to 12 MiB. Returns an indexed ID after readback verification.',inputSchema:schema({name:{type:'string',maxLength:160},base64:{type:'string'}},['name','base64'])},
-    {name:'send_file',description:'Send an archived file to the explicitly selected LINE group. Small JPEG/PNG files appear as images; other files are download links. Requires user instruction to send. Reuse request_id only for an identical retry. Reports API acceptance, not confirmed receipt.',inputSchema:schema({id:{type:'string'},request_id:{type:'string'},caption:{type:'string',maxLength:1000}},['id','request_id'])}
-  ].map(t => ({...t,annotations:{readOnlyHint:!['import_file','send_file'].includes(t.name),destructiveHint:false,openWorldHint:t.name==='send_file'}}));
+    {name:'send_file',description:'Send an archived file to the explicitly selected LINE group. Small JPEG/PNG files appear as images; other files are download links. Requires user instruction to send. Reuse request_id only for an identical retry. Reports API acceptance, not confirmed receipt.',inputSchema:schema({id:{type:'string'},request_id:{type:'string'},caption:{type:'string',maxLength:1000}},['id','request_id'])},
+    {name:'send_text',description:'Send a user-requested text message to one explicitly allowed LINE group. Resolve the group before sending. Reuse request_id only for an identical retry; API acceptance does not confirm delivery.',inputSchema:schema({text:{type:'string',minLength:1,maxLength:4900},request_id:{type:'string'}},['text','request_id'])}
+  ].map(t => ({...t,annotations:{readOnlyHint:!['import_file','send_file','send_text'].includes(t.name),destructiveHint:false,openWorldHint:['send_file','send_text'].includes(t.name)}}));
   async function call(name, args = {}) {
     if (!enabled) throw Error('Bridge is not configured');
     if (!args || typeof args !== 'object' || Array.isArray(args)) throw Error('Arguments must be an object');
@@ -79,6 +80,14 @@ function createBridge(deps, config = process.env) {
       const rows = await deps.supabaseRequest('line_memories?select=id&scope_id=eq.' + encodeURIComponent(scope) + '&storage_path=eq.' + encodeURIComponent(saved.storagePath) + '&limit=1',{method:'GET'});
       if (!rows?.[0]?.id) throw Error('Stored bytes verified, but archive index is unavailable; do not report completion');
       return {id:rows[0].id,name:fileName,size:bytes.length,archive_saved:true,line_sent:false};
+    }
+    if (name === 'send_text') {
+      const scope=scopeOf(args),requestId=idOf(args.request_id);
+      if (typeof args.text !== 'string' || !args.text.trim() || args.text.length>4900) throw Error('Invalid message text');
+      if (!config.LINE_CHANNEL_ACCESS_TOKEN) throw Error('LINE access token is not configured');
+      const r=await (deps.fetch||fetch)('https://api.line.me/v2/bot/message/push',{method:'POST',headers:{Authorization:'Bearer '+config.LINE_CHANNEL_ACCESS_TOKEN,'Content-Type':'application/json','X-Line-Retry-Key':requestId},body:JSON.stringify({to:scope.slice(6),messages:[{type:'text',text:args.text}]}),signal:AbortSignal.timeout(20000)});
+      if (!r.ok && r.status!==409) throw Error('LINE rejected the send request (HTTP '+r.status+')');
+      return {accepted:true,previously_accepted:r.status===409,scope,request_id:requestId,delivery_confirmed:false};
     }
     if (name === 'send_file') {
       const requestId = idOf(args.request_id);

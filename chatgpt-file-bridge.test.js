@@ -107,8 +107,18 @@ test('MCP transport authenticates, initializes, lists tools and sanitizes errors
   const r=response();await handler({body:{jsonrpc:'2.0',id:1,method:'initialize'}},r);
   assert.equal(r.value.result.serverInfo.name,'art-ttm-files');
   const list=response();await handler({body:{jsonrpc:'2.0',id:2,method:'tools/list'}},list);
-  assert.equal(list.value.result.tools.length,5);
+  assert.equal(list.value.result.tools.length,6);
   const error=response();await handler({body:{jsonrpc:'2.0',id:3,method:'tools/call',params:{name:'list_groups'}}},error);
   assert.equal(error.value.result.isError,true);
   assert.doesNotMatch(JSON.stringify(error.value),/private-provider-secret/);
+});
+test('text-only sends resolve the exact group, validate text and reuse retry key',async()=>{
+  const f=fixture();
+  assert.equal((await f.bridge.call('send_text',{scope,text:'พี่แอ๋มครับ เป็นการทดสอบส่งรูปครับ',request_id})).accepted,true);
+  const sent=JSON.parse(f.pushes[0].body);
+  assert.deepEqual(sent,{to:scope.slice(6),messages:[{type:'text',text:'พี่แอ๋มครับ เป็นการทดสอบส่งรูปครับ'}]});
+  assert.equal(f.pushes[0].headers['X-Line-Retry-Key'],request_id);
+  await assert.rejects(f.bridge.call('send_text',{scope:other,text:'test',request_id}),/allowlist/);
+  await assert.rejects(f.bridge.call('send_text',{scope,text:' ',request_id}),/message text/);
+  assert.equal(f.pushes.length,1);
 });
