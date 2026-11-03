@@ -3,6 +3,11 @@
 const VERSION = "image-followup-20261025-v2";
 const MAX_BYTES = 16 * 1024 * 1024;
 
+function documentCorrectionInstructions(text) {
+  if (!/(?:ฟอน[ตท์]?|font|ตัวอักษร|ภาษาไทย|อ่านไม่ออก|เพี้ยน|ลิงก์|ลิ้ง)/iu.test(String(text || ""))) return "";
+  return "เมื่อผู้ใช้แจ้งว่าฟอนต์/ฟรอนในไฟล์หรือลิงก์ไม่เป็นภาษาไทย ให้พิจารณาปัญหาตัวอักษร การเข้ารหัส และฟอนต์ของเอกสารก่อน ห้ามแปลเป็นหน้าร้าน/ด้านหน้าเพียงเพราะประวัติมีเรื่องหน้าร้าน ใช้ข้อความที่ตอบกลับโดยตรงและต้นฉบับที่เกี่ยวข้อง ไม่อ้างสาเหตุว่า encoding เสียจากภาพเพียงอย่างเดียว ตรวจหลักฐานก่อนสรุป ถ้ามีต้นฉบับให้อ่านและทำส่วนที่ทำได้ทันที ไม่จบด้วยถ้าต้องการให้บอกอีกครั้ง ห้ามสัญญาว่าระบบแก้แล้วหรือไฟล์ส่งแล้วโดยไม่มีผลลัพธ์เครื่องมือจริง ถ้ายังแก้ไฟล์ไม่ได้ ให้ระบุขั้นตอนที่ติดขัดตรงจุด ไม่แทนงานแก้ไฟล์ด้วยการขอโทษหรือร่างข้อความคนละเรื่อง";
+}
+
 async function loadContextParts(loaders, log = console.error) {
   const results = await Promise.allSettled(loaders.map(fn => Promise.resolve().then(fn)));
   return results.map((r, i) => {
@@ -101,4 +106,4 @@ function splitLineText(text) {
   return parts.length ? parts : [{type:"text",text:"ระบบยังไม่มีคำตอบ กรุณาลองใหม่ครับ"}];
 }
 
-module.exports = {VERSION, loadContextParts, reasoningOptions, selectAttachments, loadRelevantAttachments, splitLineText};
+module.exports = {VERSION, loadContextParts, reasoningOptions, selectAttachments, loadRelevantAttachments, splitLineText, documentCorrectionInstructions};

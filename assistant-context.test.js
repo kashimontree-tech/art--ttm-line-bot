@@ -3,6 +3,14 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const XLSX = require("xlsx");
 const a = require("./assistant-context");
+test("Thai font complaint is treated as a document problem, not storefront vocabulary",()=>{
+  for(const text of ["คืออะไรอาร์ตฟรอนไม่ใช่ภาษาไทยทำไมไม่ตรวจ", "ฟอนต์ในลิงก์อ่านไม่ออก", "font ไม่ตรง"]){
+    const policy=a.documentCorrectionInstructions(text);
+    assert.match(policy,/ห้ามแปลเป็นหน้าร้าน/);
+    assert.match(policy,/ผลลัพธ์เครื่องมือจริง/);
+  }
+  assert.equal(a.documentCorrectionInstructions("อาร์ตสวัสดี"),"");
+});
 const row = (name, id, date="2026-10-17T17:00:00Z") => ({file_name:name,line_message_id:id,storage_bucket:"private",storage_path:"group-a/"+id,created_at:date,mime_type:/\.pdf$/i.test(name)?"application/pdf":/\.xlsx?$/i.test(name)?"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":"image/jpeg"});
 test("one broken context source does not discard the other sources", async () => {
   assert.deepEqual(await a.loadContextParts([()=>"history",()=>{throw Error("offline")},async()=>"members"],()=>{}),["history","","members"]);
