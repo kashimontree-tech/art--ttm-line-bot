@@ -36,7 +36,7 @@ function createBridge(deps, config = process.env) {
     {name:'list_files',description:'List stored originals in one allowed group, newest first. Page with offset; filter filenames with query.',inputSchema:schema({query:{type:'string',maxLength:200},offset:{type:'integer',minimum:0},limit:{type:'integer',minimum:1,maximum:100}})},
     {name:'get_file',description:'Get a 15-minute download link to a stored LINE original. Download and save separately through ChatGPT Library; this tool does not save to Library.',inputSchema:schema({id:{type:'string'}},['id'])},
     {name:'import_file',description:'Store a ChatGPT file in the TTM app archive for the specified group, without sending to LINE. Base64 bytes, up to 12 MiB. Returns an indexed ID after readback verification.',inputSchema:schema({name:{type:'string',maxLength:160},base64:{type:'string'}},['name','base64'])},
-    {name:'send_file',description:'Send an archived file to the explicitly selected LINE group. Small JPEG/PNG files appear as images; other files are download links. Requires user instruction to send. Reuse request_id only for an identical retry. Reports API acceptance, not confirmed receipt.',inputSchema:schema({id:{type:'string'},request_id:{type:'string'}},['id','request_id'])}
+    {name:'send_file',description:'Send an archived file to the explicitly selected LINE group. Small JPEG/PNG files appear as images; other files are download links. Requires user instruction to send. Reuse request_id only for an identical retry. Reports API acceptance, not confirmed receipt.',inputSchema:schema({id:{type:'string'},request_id:{type:'string'},caption:{type:'string',maxLength:1000}},['id','request_id'])}
   ].map(t => ({...t,annotations:{readOnlyHint:!['import_file','send_file'].includes(t.name),destructiveHint:false,openWorldHint:t.name==='send_file'}}));
   async function call(name, args = {}) {
     if (!enabled) throw Error('Bridge is not configured');
@@ -82,6 +82,7 @@ function createBridge(deps, config = process.env) {
     }
     if (name === 'send_file') {
       const requestId = idOf(args.request_id);
+      if (args.caption !== undefined && (typeof args.caption !== 'string' || args.caption.length > 1000)) throw Error('Invalid caption');
       if (!config.LINE_CHANNEL_ACCESS_TOKEN) throw Error('LINE access token is not configured');
       const f = await fileOf(args);
       const url = await deps.createSupabaseSignedUrl(f.storage_bucket,f.storage_path,3600);
@@ -94,6 +95,7 @@ function createBridge(deps, config = process.env) {
           messages = [{type:'image',originalContentUrl:url,previewImageUrl:url}];
         }
       }
+      if (args.caption?.trim()) messages.unshift({type:'text',text:args.caption.trim()});
       const r = await (deps.fetch || fetch)('https://api.line.me/v2/bot/message/push',{method:'POST',headers:{Authorization:'Bearer ' + config.LINE_CHANNEL_ACCESS_TOKEN,'Content-Type':'application/json','X-Line-Retry-Key':requestId},body:JSON.stringify({to:args.scope.slice(6),messages}),signal:AbortSignal.timeout(20000)});
       if (!r.ok && r.status !== 409) throw Error('LINE rejected the send request (HTTP ' + r.status + ')');
       return {accepted:true,previously_accepted:r.status===409,mode,scope:args.scope,request_id:requestId,delivery_confirmed:false};

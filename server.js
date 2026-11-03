@@ -1786,6 +1786,10 @@ async function auditSanmaiSlipsOnce(){
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Art TTM server running on port ${PORT}`);
+  setTimeout(()=>require('./bridge-smoke-test').run({
+    supabaseRequest,createSupabaseSignedUrl,uploadSupabaseFile,downloadSupabaseFile,saveFileMemory,
+    createTestImage:()=>require('sharp')(Buffer.from('<svg width="640" height="360" xmlns="http://www.w3.org/2000/svg"><rect width="640" height="360" fill="#126148"/><text x="320" y="150" text-anchor="middle" fill="white" font-family="sans-serif" font-size="48">ART TTM</text><text x="320" y="220" text-anchor="middle" fill="white" font-family="sans-serif" font-size="28">CONNECTION TEST ONLY</text></svg>')).png().toBuffer()
+  },{...process.env,LINE_CHANNEL_ACCESS_TOKEN:CLEAN_LINE_TOKEN}).then(result=>console.log('Bridge smoke test:',JSON.stringify(result))).catch(e=>console.error('Bridge smoke test failed:',e.message)),4000).unref();
   setInterval(()=>void getAiJobs().tick(),15000).unref();
   setTimeout(()=>syncOwnerRequestedRosters20261103().catch(e=>console.error("Owner roster sync failed",e.message)),5000).unref();
   setTimeout(()=>void getAiJobs().tick(),2000).unref();

@@ -1,4 +1,4 @@
-# ChatGPT ↔ LINE file bridge (prepared, not activated)
+# ChatGPT ↔ LINE file bridge
 
 This adds an owner-only stateless MCP endpoint at `/mcp/ttm-files`. It reuses
 the TTM app's existing group archive, private storage, and indexing adapters.
@@ -65,3 +65,18 @@ index failure, native images versus links, LINE rejection, retry acceptance,
 and MCP initialization/tool discovery/error sanitization. No live LINE messages
 are sent. Live deployment, client connection, a real send, and actual Library
 writeback remain unverified.
+
+## Explicit one-image live test
+
+The owner-authorized smoke test runs only when `TTM_BRIDGE_SMOKE_TEST_ID`
+(a unique UUID) and `TTM_BRIDGE_SMOKE_TEST_SCOPE` (the verified exact group)
+are configured. It archives a neutral test PNG, verifies its bytes/index, then
+sends one native image with a Thai test notice to that group. A durable receipt
+and LINE retry key prevent repeats across restarts. Unfinished receipts older
+than 23 hours require manual review. No other group receives this test.
+After the test, clear these two opt-in values for future deploys.
+
+This tests the server-side archive/send adapters; it is not a test of a connected
+ChatGPT MCP client or of a ChatGPT Library save. Those are separate verification
+steps. `node --test chatgpt-file-bridge.test.js bridge-smoke-test.test.js` also
+checks the single-send receipt and expired-retry guards without live messages.
