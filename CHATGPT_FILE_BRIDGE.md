@@ -1,5 +1,36 @@
 # ChatGPT ↔ LINE file bridge
 
+## Owner-authorized queue fallback (3 November 2026)
+
+When this ChatGPT session has no custom MCP tools attached, use the connected
+Supabase service/admin SQL tool to enqueue explicitly requested sends in
+`public.ttm_outbound_requests`. This table is service-only: RLS enabled and
+all privileges revoked from PUBLIC, anon and authenticated. Never grant public
+enqueue access. No credentials need to enter ChatGPT context.
+
+Resolve the exact group in `ttm_group_registry` first. Insert one request with
+`authorized_by=owner_explicit_chatgpt`, a concrete `authorization_note`,
+`scope_id`, `kind` and `payload`. Text payload is `{text:...}`; a file payload
+is `{name:...,base64:...,caption:...}` or an already archived same-group
+`{file_id:...,caption:...}`. Do not enqueue absent explicit send authorization.
+The worker checks current LINE group access, claims pending rows atomically,
+and reuses the request UUID as the LINE retry key. Requests expire in 30 minutes.
+It never automatically replays `sending` or `failed` rows. Reconcile uncertain
+receipts before any retry. A sleeping free service may need a health request
+to wake it; queue insertion alone is not evidence of sending.
+
+Read the same row's status/result after enqueue. Only `accepted` with an actual
+LINE result establishes API acceptance; this is still not recipient receipt.
+This is a server queue workflow, not proof a custom MCP plugin was installed.
+
+All registered groups are eligible for individually authorized owner requests;
+do not broadcast to all groups. Existing MCP allowlists remain independently
+configured. Optional `TTM_CHATGPT_BRIDGE_ALL_REGISTERED_GROUPS=1` expands MCP
+scope checks to registered groups; default remains the explicit static list.
+
+Markdown imports are supported as `text/markdown`, in addition to the existing
+formats. Other native-image and temporary download-link limits below apply.
+
 This adds an owner-only stateless MCP endpoint at `/mcp/ttm-files`. It reuses
 the TTM app's existing group archive, private storage, and indexing adapters.
 It does not connect a ChatGPT account or save anything in ChatGPT Library by
@@ -80,3 +111,4 @@ This tests the server-side archive/send adapters; it is not a test of a connecte
 ChatGPT MCP client or of a ChatGPT Library save. Those are separate verification
 steps. `node --test chatgpt-file-bridge.test.js bridge-smoke-test.test.js` also
 checks the single-send receipt and expired-retry guards without live messages.
+

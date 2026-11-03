@@ -169,7 +169,7 @@ function getAiJobs() {
   }
   return aiJobQueue;
 }
-app.get("/health", (req, res) => res.json({ok:true, release:"20261103-media-guard", version:assistantContext.VERSION, reasoningModel:assistantContext.reasoningOptions().model, features:["reasoning","attachment-followup","document-jobs","image-jobs","audio-transcription","public-web-search","narrated-still-video","video-analysis-v1","live-knowledge-updates","translation-v1"]}));
+app.get("/health", (req, res) => res.json({ok:true, release:"20261103-media-guard", version:assistantContext.VERSION, reasoningModel:assistantContext.reasoningOptions().model, features:["owner-outbox-v1","reasoning","attachment-followup","document-jobs","image-jobs","audio-transcription","public-web-search","narrated-still-video","video-analysis-v1","live-knowledge-updates","translation-v1"]}));
 
 app.get("/", (req, res) => {
   res.status(200).send("Art TTM LINE Bot is running");
@@ -1786,6 +1786,10 @@ async function auditSanmaiSlipsOnce(){
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Art TTM server running on port ${PORT}`);
+  const ownerOutbox = require('./owner-outbox').createOutbox({supabaseRequest,createSupabaseSignedUrl,uploadSupabaseFile,downloadSupabaseFile,saveFileMemory},{...process.env,LINE_CHANNEL_ACCESS_TOKEN:CLEAN_LINE_TOKEN});
+  const runOwnerOutbox = () => ownerOutbox.tick().catch(e=>console.error('Owner outbox tick failed:',e.message));
+  setInterval(runOwnerOutbox,5000).unref();
+  setTimeout(runOwnerOutbox,1500).unref();
   setTimeout(()=>require('./bridge-smoke-test').run({
     supabaseRequest,createSupabaseSignedUrl,uploadSupabaseFile,downloadSupabaseFile,saveFileMemory,
     createTestImage:()=>require('sharp')(Buffer.from('<svg width="640" height="360" xmlns="http://www.w3.org/2000/svg"><rect width="640" height="360" fill="#126148"/><text x="320" y="150" text-anchor="middle" fill="white" font-family="sans-serif" font-size="48">ART TTM</text><text x="320" y="220" text-anchor="middle" fill="white" font-family="sans-serif" font-size="28">CONNECTION TEST ONLY</text></svg>')).png().toBuffer()
@@ -1849,3 +1853,4 @@ async function syncOwnerRequestedRosters20261103(){
   console.log("Owner roster sync",g.group_name,listStatus,known.length,complete);
  }
 }
+

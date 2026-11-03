@@ -8,22 +8,29 @@ function createBridge(deps, config = process.env) {
   try { scopes = JSON.parse(config.TTM_CHATGPT_BRIDGE_SCOPES || '[]'); } catch {}
   if (!Array.isArray(scopes)) scopes = [];
   scopes = scopes.filter(s => typeof s === 'string' && /^group:C[a-f0-9]{32}$/i.test(s));
-  const enabled = token.length >= 32 && scopes.length > 0;
+  const registeredGroups = String(config.TTM_CHATGPT_BRIDGE_ALL_REGISTERED_GROUPS || '') === '1';
+  const validScope = value => typeof value === 'string' && /^group:C[a-f0-9]{32}$/i.test(value);
+  const enabled = token.length >= 32 && (scopes.length > 0 || registeredGroups);
   const authorize = header => {
     const supplied = Buffer.from(String(header || ''));
     const expected = Buffer.from('Bearer ' + token);
     return enabled && supplied.length === expected.length && crypto.timingSafeEqual(supplied, expected);
   };
-  function scopeOf(args) {
-    if (!scopes.includes(args.scope)) throw Error('Group is outside the bridge allowlist');
-    return args.scope;
+  async function scopeOf(args) {
+    if (!validScope(args.scope)) throw Error('Invalid group scope');
+    if (scopes.includes(args.scope)) return args.scope;
+    if (registeredGroups) {
+      const rows = await deps.supabaseRequest('ttm_group_registry?select=scope_id&scope_id=eq.' + encodeURIComponent(args.scope) + '&limit=1', {method:'GET'});
+      if (rows?.some(g => g.scope_id === args.scope)) return args.scope;
+    }
+    throw Error('Group is outside the bridge allowlist');
   }
   const idOf = value => {
     if (typeof value !== 'string' || !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(value)) throw Error('Invalid file or request ID');
     return value;
   };
   async function fileOf(args) {
-    const scope = scopeOf(args), id = idOf(args.id);
+    const scope = await scopeOf(args), id = idOf(args.id);
     const rows = await deps.supabaseRequest('line_memories?select=id,file_name,mime_type,scope_id,storage_bucket,storage_path,created_at&id=eq.' + id + '&scope_id=eq.' + encodeURIComponent(scope) + '&limit=1', {method:'GET'});
     const file = rows?.[0];
     if (!file?.storage_bucket || !file.storage_path || file.scope_id !== scope) throw Error('Stored original not found in this group');
@@ -32,7 +39,7 @@ function createBridge(deps, config = process.env) {
   const properties = {scope:{type:'string',description:'Exact allowed group scope from list_groups'}};
   const schema = (extra = {}, required = []) => ({type:'object',properties:{...properties,...extra},required:['scope',...required],additionalProperties:false});
   const tools = [
-    {name:'list_groups',description:'List only owner-allowed archive groups. Registry presence does not prove current bot membership.',inputSchema:{type:'object',properties:{},additionalProperties:false}},
+    {name:'list_groups',description:'List owner-authorized groups, including registered groups when explicitly enabled. Resolve the exact destination; registry presence does not prove current bot membership.',inputSchema:{type:'object',properties:{},additionalProperties:false}},
     {name:'list_files',description:'List stored originals in one allowed group, newest first. Page with offset; filter filenames with query.',inputSchema:schema({query:{type:'string',maxLength:200},offset:{type:'integer',minimum:0},limit:{type:'integer',minimum:1,maximum:100}})},
     {name:'get_file',description:'Get a 15-minute download link to a stored LINE original. Download and save separately through ChatGPT Library; this tool does not save to Library.',inputSchema:schema({id:{type:'string'}},['id'])},
     {name:'import_file',description:'Store a ChatGPT file in the TTM app archive for the specified group, without sending to LINE. Base64 bytes, up to 12 MiB. Returns an indexed ID after readback verification.',inputSchema:schema({name:{type:'string',maxLength:160},base64:{type:'string'}},['name','base64'])},
@@ -44,10 +51,10 @@ function createBridge(deps, config = process.env) {
     if (!args || typeof args !== 'object' || Array.isArray(args)) throw Error('Arguments must be an object');
     if (name === 'list_groups') {
       const rows = await deps.supabaseRequest('ttm_group_registry?select=scope_id,group_name', {method:'GET'});
-      return {groups:(rows || []).filter(g => scopes.includes(g.scope_id))};
+      return {groups:(rows || []).filter(g => validScope(g.scope_id) && (registeredGroups || scopes.includes(g.scope_id)))};
     }
     if (name === 'list_files') {
-      const scope = scopeOf(args);
+      const scope = await scopeOf(args);
       const limit = args.limit ?? 50, offset = args.offset ?? 0;
       if (!Number.isInteger(limit) || limit < 1 || limit > 100 || !Number.isSafeInteger(offset) || offset < 0) throw Error('Invalid pagination');
       const query = String(args.query || '');
@@ -62,10 +69,10 @@ function createBridge(deps, config = process.env) {
       return {id:f.id,name:f.file_name,mime:f.mime_type,url:await deps.createSupabaseSignedUrl(f.storage_bucket,f.storage_path,900),expires_in:900,chatgpt_library_saved:false};
     }
     if (name === 'import_file') {
-      const scope = scopeOf(args);
+      const scope = await scopeOf(args);
       const fileName = String(args.name || '').trim();
       if (!fileName || fileName.length > 160 || /[\\/\x00-\x1f]/.test(fileName) || ['.','..'].includes(fileName)) throw Error('Invalid filename');
-      const types = {pdf:'application/pdf',xlsx:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',xls:'application/vnd.ms-excel',docx:'application/vnd.openxmlformats-officedocument.wordprocessingml.document',pptx:'application/vnd.openxmlformats-officedocument.presentationml.presentation',jpg:'image/jpeg',jpeg:'image/jpeg',png:'image/png',webp:'image/webp',txt:'text/plain',csv:'text/csv',zip:'application/zip'};
+      const types = {pdf:'application/pdf',xlsx:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',xls:'application/vnd.ms-excel',docx:'application/vnd.openxmlformats-officedocument.wordprocessingml.document',pptx:'application/vnd.openxmlformats-officedocument.presentationml.presentation',jpg:'image/jpeg',jpeg:'image/jpeg',png:'image/png',webp:'image/webp',txt:'text/plain',csv:'text/csv',zip:'application/zip',md:'text/markdown'};
       const mime = types[fileName.split('.').pop().toLowerCase()];
       if (!mime) throw Error('Unsupported file extension');
       const raw = args.base64;
@@ -82,7 +89,7 @@ function createBridge(deps, config = process.env) {
       return {id:rows[0].id,name:fileName,size:bytes.length,archive_saved:true,line_sent:false};
     }
     if (name === 'send_text') {
-      const scope=scopeOf(args),requestId=idOf(args.request_id);
+      const scope=await scopeOf(args),requestId=idOf(args.request_id);
       if (typeof args.text !== 'string' || !args.text.trim() || args.text.length>4900) throw Error('Invalid message text');
       if (!config.LINE_CHANNEL_ACCESS_TOKEN) throw Error('LINE access token is not configured');
       const r=await (deps.fetch||fetch)('https://api.line.me/v2/bot/message/push',{method:'POST',headers:{Authorization:'Bearer '+config.LINE_CHANNEL_ACCESS_TOKEN,'Content-Type':'application/json','X-Line-Retry-Key':requestId},body:JSON.stringify({to:scope.slice(6),messages:[{type:'text',text:args.text}]}),signal:AbortSignal.timeout(20000)});
@@ -146,3 +153,4 @@ function setup(app, deps, config = process.env) {
   return bridge;
 }
 module.exports = {createBridge,setup};
+
