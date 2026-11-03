@@ -12,6 +12,7 @@ const app = express();
 app.get("/slip-admin.html", (req,res) => res.sendFile(require("path").join(__dirname,"slip-admin.html")));
 require("./slip-admin").setupSlipAdmin(app,{supabaseRequest,createSupabaseSignedUrl,getThaiPdfFont,uploadSupabaseFile,saveFileMemory});
 require("./ttm-group")(app,{supabaseRequest,createSupabaseSignedUrl,getThaiPdfFont,uploadSupabaseFile,saveFileMemory});
+require("./chatgpt-file-bridge").setup(app,{supabaseRequest,createSupabaseSignedUrl,uploadSupabaseFile,downloadSupabaseFile,saveFileMemory,json:express.json});
 const voiceMeetings = require("./voice-meeting");
 voiceMeetings.setup(app,{supabaseRequest});
 const liveFileCache = new Map();
