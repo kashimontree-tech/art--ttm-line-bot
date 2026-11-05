@@ -44,6 +44,7 @@ function createBridge(deps, config = process.env) {
     {name:'get_file',description:'Get a 15-minute download link to a stored LINE original. Download and save separately through ChatGPT Library; this tool does not save to Library.',inputSchema:schema({id:{type:'string'}},['id'])},
     {name:'import_file',description:'Store a ChatGPT file in the TTM app archive for the specified group, without sending to LINE. Base64 bytes, up to 12 MiB. Returns an indexed ID after readback verification.',inputSchema:schema({name:{type:'string',maxLength:160},base64:{type:'string'}},['name','base64'])},
     {name:'send_file',description:'Send an archived file to the explicitly selected LINE group. Small JPEG/PNG files appear as images; other files are download links. Requires user instruction to send. Reuse request_id only for an identical retry. Reports API acceptance, not confirmed receipt.',inputSchema:schema({id:{type:'string'},request_id:{type:'string'},caption:{type:'string',maxLength:1000}},['id','request_id'])},
+    {name:'get_file_activity',description:'List distinct people who requested a file link or explicitly acknowledged reading. Not LINE read receipts or proof of download.',inputSchema:schema({id:{type:'string'}},['id'])},
     {name:'send_text',description:'Send a user-requested text message to one explicitly allowed LINE group. Resolve the group before sending. Reuse request_id only for an identical retry; API acceptance does not confirm delivery.',inputSchema:schema({text:{type:'string',minLength:1,maxLength:4900},request_id:{type:'string'},mentions:{type:'array',minItems:1,maxItems:20,description:'Explicit verified user IDs in this group. Text uses {key} placeholders; never use all-members mentions.',items:{type:'object',properties:{key:{type:'string',pattern:'^[A-Za-z0-9_]{1,20}$'},user_id:{type:'string',pattern:'^U[a-f0-9]{32}$'}},required:['key','user_id'],additionalProperties:false}}},['text','request_id'])}
   ].map(t => ({...t,annotations:{readOnlyHint:!['import_file','send_file','send_text'].includes(t.name),destructiveHint:false,openWorldHint:['send_file','send_text'].includes(t.name)}}));
   async function call(name, args = {}) {
@@ -88,6 +89,7 @@ function createBridge(deps, config = process.env) {
       if (!rows?.[0]?.id) throw Error('Stored bytes verified, but archive index is unavailable; do not report completion');
       return {id:rows[0].id,name:fileName,size:bytes.length,archive_saved:true,line_sent:false};
     }
+    if (name === 'get_file_activity') return require('./file-activity').report(deps,await scopeOf(args),idOf(args.id));
     if (name === 'send_text') {
       const scope=await scopeOf(args),requestId=idOf(args.request_id);
       if (typeof args.text !== 'string' || !args.text.trim() || args.text.length>4900) throw Error('Invalid message text');
@@ -132,6 +134,7 @@ function createBridge(deps, config = process.env) {
           messages = [{type:'image',originalContentUrl:url,previewImageUrl:url}];
         }
       }
+      if (mode === 'download_link') messages.push(require('./file-activity').buttons(f.id));
       if (args.caption?.trim()) messages.unshift({type:'text',text:args.caption.trim()});
       const r = await (deps.fetch || fetch)('https://api.line.me/v2/bot/message/push',{method:'POST',headers:{Authorization:'Bearer ' + config.LINE_CHANNEL_ACCESS_TOKEN,'Content-Type':'application/json','X-Line-Retry-Key':requestId},body:JSON.stringify({to:args.scope.slice(6),messages}),signal:AbortSignal.timeout(20000)});
       if (!r.ok && r.status !== 409) throw Error('LINE rejected the send request (HTTP ' + r.status + ')');

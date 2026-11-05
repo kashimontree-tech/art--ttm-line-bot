@@ -125,3 +125,18 @@ The bridge checks each user through that group's live member-profile endpoint
 and refuses sending if membership or returned identity cannot be verified.
 No all-members mentions are supported. Plain messages remain unchanged.
 Queue `accepted` still means API acceptance, never confirmed reading.
+
+## File activity buttons (5 November 2026)
+
+New file-link sends include explicit group buttons for requesting a link,
+self-reporting that the file has been read, and viewing names/counts. A signed
+LINE postback identifies the acting account. Events are stored durably before
+webhook acknowledgement, bound to the exact group and archived file. Repeated
+clicks count as one person per action. No schema or public access changes.
+`get_file_activity` returns the same group-scoped activity to the owner bridge.
+
+A link request is not a download/open event. A read acknowledgment is a user's
+statement, not proof of reading. Existing direct links and native-image sends
+are not tracked. Reports cap stored events at 1,000 and label limited results;
+LINE text reports show the first 15 distinct names per action. All future
+reports must keep these distinctions. No historical read status can be recovered.

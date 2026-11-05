@@ -107,7 +107,7 @@ test('MCP transport authenticates, initializes, lists tools and sanitizes errors
   const r=response();await handler({body:{jsonrpc:'2.0',id:1,method:'initialize'}},r);
   assert.equal(r.value.result.serverInfo.name,'art-ttm-files');
   const list=response();await handler({body:{jsonrpc:'2.0',id:2,method:'tools/list'}},list);
-  assert.equal(list.value.result.tools.length,6);
+  assert.equal(list.value.result.tools.length,7);
   const error=response();await handler({body:{jsonrpc:'2.0',id:3,method:'tools/call',params:{name:'list_groups'}}},error);
   assert.equal(error.value.result.isError,true);
   assert.doesNotMatch(JSON.stringify(error.value),/private-provider-secret/);
