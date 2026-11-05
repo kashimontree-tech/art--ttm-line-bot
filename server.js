@@ -209,6 +209,10 @@ app.post("/webhook", express.raw({ type: "application/json" }), async (req, res)
         });
       }
     }
+    // Record file-button events durably before acknowledging delivery.
+    for(const event of body.events||[]){
+      await require('./file-activity').handle(event,{supabaseRequest,createSupabaseSignedUrl,getLineProfile,replyMessage});
+    }
     res.sendStatus(200);
 
     for (const event of body.events || []) {
