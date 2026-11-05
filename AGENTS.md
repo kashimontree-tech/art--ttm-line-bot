@@ -26,3 +26,11 @@ Before sending any corrected document:
 7. If interrupted, resume from the last evidenced step. Any failed or unknown critical check blocks a claim of completion and must be stated plainly.
 
 Reference for the adapted method (not an aircraft operating checklist): FAA-hosted Training Standardization Working Group report, 20 February 2024, checklist procedures pp. 45-46: https://www.faa.gov/sites/faa.gov/files/Revised-HS125-Curriculum-Report-20Feb24.pdf
+
+## Verified live bridge evidence (5 November 2026)
+
+- Owner reiterated: remember that ChatGPT can send text and file links through the existing bridge. Before saying sending is unavailable, read CHATGPT_FILE_BRIDGE.md and check the authenticated Supabase outbound queue route. Do not make the owner repeat this workflow.
+- Current registry resolved `group:C450cf7f857b0b5e68c6acacf84de0b58` as `ห้ามคุยเล่น ❌❌TTM X Planing` on this date. Resolve against current records on future sends; never broadcast.
+- UNO Mega Bangna cost workbook, 8 BOQ category tabs plus summary, was enqueued once as request `a007d6df-07e5-4cc7-ae1b-437b3e091db5`. Queue status `accepted`, result `accepted:true`, mode `download_link`, `delivery_confirmed:false`. Workbook SHA256: `d01575469c2f75188bbfe89f679f74cdc3909bb8362fc06f719c50543e472ab6`.
+- Owner-requested follow-up text to พี่ปาน was request `ca79c0cc-ce06-4ddc-9640-9a61bae3b313`, status `accepted`, `delivery_confirmed:false`.
+- This proves live LINE API acceptance through the queue, not recipient receipt/read confirmation or native Excel attachment support. Preserve duplicate-send guards; no test chatter in work groups.
