@@ -122,3 +122,26 @@ test('text-only sends resolve the exact group, validate text and reuse retry key
   await assert.rejects(f.bridge.call('send_text',{scope,text:' ',request_id}),/message text/);
   assert.equal(f.pushes.length,1);
 });
+const mentionUser='U'+'c'.repeat(32);
+test('mentions use textV2 after exact-group live member verification',async()=>{
+ const f=fixture({fetch:async(url,o)=>{
+  f.pushes.push({url,...o});
+  return url.includes('/member/')?{ok:true,json:async()=>({userId:mentionUser})}:{ok:true,status:200};
+ }});
+ const args={scope,text:'{pan} อาร์ตแยกไฟล์แล้วค่ะ',request_id,mentions:[{key:'pan',user_id:mentionUser}]};
+ assert.equal((await f.bridge.call('send_text',args)).accepted,true);
+ assert.equal(f.pushes.length,2);assert.match(f.pushes[0].url,new RegExp('/group/'+scope.slice(6)+'/member/'+mentionUser+'$'));
+ const body=JSON.parse(f.pushes[1].body);
+ assert.equal(body.messages[0].type,'textV2');assert.deepEqual(body.messages[0].substitution.pan,{type:'mention',mentionee:{type:'user',userId:mentionUser}});
+});
+test('invalid, missing, repeated and all-members mention targets never push',async()=>{
+ for(const [text,mentions] of [['{pan}',[]],['{pan}',[{key:'pan',user_id:'all'}]],['{other}',[{key:'pan',user_id:mentionUser}]],['{pan} {pan}',[{key:'pan',user_id:mentionUser}]],['{pan}',[{key:'pan',user_id:mentionUser},{key:'pan',user_id:mentionUser}]],['{broken',[{key:'pan',user_id:mentionUser}]]]){
+  const f=fixture();await assert.rejects(f.bridge.call('send_text',{scope,text,request_id,mentions}),/Invalid mention/);assert.equal(f.pushes.length,0);
+ }
+});
+test('inaccessible or mismatched member fails closed before push',async()=>{
+ for(const response of [{ok:false,status:404},{ok:true,json:async()=>({userId:'U'+'d'.repeat(32)})}]){
+  let pushed=false;const f=fixture({fetch:async(url)=>{if(url.endsWith('/push'))pushed=true;return response;}});
+  await assert.rejects(f.bridge.call('send_text',{scope,text:'{pan}',request_id,mentions:[{key:'pan',user_id:mentionUser}]}),/LINE mention member/);assert.equal(pushed,false);
+ }
+});

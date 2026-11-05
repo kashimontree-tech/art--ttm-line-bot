@@ -44,7 +44,7 @@ function createBridge(deps, config = process.env) {
     {name:'get_file',description:'Get a 15-minute download link to a stored LINE original. Download and save separately through ChatGPT Library; this tool does not save to Library.',inputSchema:schema({id:{type:'string'}},['id'])},
     {name:'import_file',description:'Store a ChatGPT file in the TTM app archive for the specified group, without sending to LINE. Base64 bytes, up to 12 MiB. Returns an indexed ID after readback verification.',inputSchema:schema({name:{type:'string',maxLength:160},base64:{type:'string'}},['name','base64'])},
     {name:'send_file',description:'Send an archived file to the explicitly selected LINE group. Small JPEG/PNG files appear as images; other files are download links. Requires user instruction to send. Reuse request_id only for an identical retry. Reports API acceptance, not confirmed receipt.',inputSchema:schema({id:{type:'string'},request_id:{type:'string'},caption:{type:'string',maxLength:1000}},['id','request_id'])},
-    {name:'send_text',description:'Send a user-requested text message to one explicitly allowed LINE group. Resolve the group before sending. Reuse request_id only for an identical retry; API acceptance does not confirm delivery.',inputSchema:schema({text:{type:'string',minLength:1,maxLength:4900},request_id:{type:'string'}},['text','request_id'])}
+    {name:'send_text',description:'Send a user-requested text message to one explicitly allowed LINE group. Resolve the group before sending. Reuse request_id only for an identical retry; API acceptance does not confirm delivery.',inputSchema:schema({text:{type:'string',minLength:1,maxLength:4900},request_id:{type:'string'},mentions:{type:'array',minItems:1,maxItems:20,description:'Explicit verified user IDs in this group. Text uses {key} placeholders; never use all-members mentions.',items:{type:'object',properties:{key:{type:'string',pattern:'^[A-Za-z0-9_]{1,20}$'},user_id:{type:'string',pattern:'^U[a-f0-9]{32}$'}},required:['key','user_id'],additionalProperties:false}}},['text','request_id'])}
   ].map(t => ({...t,annotations:{readOnlyHint:!['import_file','send_file','send_text'].includes(t.name),destructiveHint:false,openWorldHint:['send_file','send_text'].includes(t.name)}}));
   async function call(name, args = {}) {
     if (!enabled) throw Error('Bridge is not configured');
@@ -92,7 +92,28 @@ function createBridge(deps, config = process.env) {
       const scope=await scopeOf(args),requestId=idOf(args.request_id);
       if (typeof args.text !== 'string' || !args.text.trim() || args.text.length>4900) throw Error('Invalid message text');
       if (!config.LINE_CHANNEL_ACCESS_TOKEN) throw Error('LINE access token is not configured');
-      const r=await (deps.fetch||fetch)('https://api.line.me/v2/bot/message/push',{method:'POST',headers:{Authorization:'Bearer '+config.LINE_CHANNEL_ACCESS_TOKEN,'Content-Type':'application/json','X-Line-Retry-Key':requestId},body:JSON.stringify({to:scope.slice(6),messages:[{type:'text',text:args.text}]}),signal:AbortSignal.timeout(20000)});
+      let message={type:'text',text:args.text};
+      if (args.mentions !== undefined) {
+        if (!Array.isArray(args.mentions) || !args.mentions.length || args.mentions.length>20) throw Error('Invalid mentions');
+        const substitution=Object.create(null), ids=new Set();
+        for (const m of args.mentions) {
+          if (!m || !/^[A-Za-z0-9_]{1,20}$/.test(m.key || '') || !/^U[a-f0-9]{32}$/i.test(m.user_id || '') || Object.hasOwn(substitution,m.key) || ids.has(m.user_id)) throw Error('Invalid mention target');
+          substitution[m.key]={type:'mention',mentionee:{type:'user',userId:m.user_id}};
+          ids.add(m.user_id);
+        }
+        // Treat doubled braces as literal text; every placeholder must map
+        // exactly once to an explicit user, never an all-members mention.
+        const template=args.text.replace(/\{\{|\}\}/g,'');
+        const keys=[...template.matchAll(/\{([A-Za-z0-9_]{1,20})\}/g)].map(x=>x[1]);
+        if (template.replace(/\{[A-Za-z0-9_]{1,20}\}/g,'').match(/[{}]/) || keys.length!==args.mentions.length || new Set(keys).size!==keys.length || keys.some(k=>!Object.hasOwn(substitution,k))) throw Error('Invalid mention placeholders');
+        for (const userId of ids) {
+          const member=await (deps.fetch||fetch)('https://api.line.me/v2/bot/group/'+scope.slice(6)+'/member/'+userId,{headers:{Authorization:'Bearer '+config.LINE_CHANNEL_ACCESS_TOKEN},signal:AbortSignal.timeout(12000)});
+          if (!member.ok) throw Error('LINE mention member verification failed (HTTP '+member.status+')');
+          if ((await member.json()).userId!==userId) throw Error('LINE mention member identity mismatch');
+        }
+        message={type:'textV2',text:args.text,substitution};
+      }
+      const r=await (deps.fetch||fetch)('https://api.line.me/v2/bot/message/push',{method:'POST',headers:{Authorization:'Bearer '+config.LINE_CHANNEL_ACCESS_TOKEN,'Content-Type':'application/json','X-Line-Retry-Key':requestId},body:JSON.stringify({to:scope.slice(6),messages:[message]}),signal:AbortSignal.timeout(20000)});
       if (!r.ok && r.status!==409) throw Error('LINE rejected the send request (HTTP '+r.status+')');
       return {accepted:true,previously_accepted:r.status===409,scope,request_id:requestId,delivery_confirmed:false};
     }
