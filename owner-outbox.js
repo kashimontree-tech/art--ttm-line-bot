@@ -33,7 +33,7 @@ function createOutbox(deps, config = process.env) {
           const args = {scope:job.scope_id,request_id:job.id};
           let result;
           if (job.kind === 'text') {
-            result = await bridge.call('send_text',{...args,text:job.payload?.text});
+            result = await bridge.call('send_text',{...args,text:job.payload?.text,mentions:job.payload?.mentions});
           } else if (job.kind === 'file') {
             let id = job.payload?.file_id;
             if (!id) {

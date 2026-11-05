@@ -112,3 +112,16 @@ ChatGPT MCP client or of a ChatGPT Library save. Those are separate verification
 steps. `node --test chatgpt-file-bridge.test.js bridge-smoke-test.test.js` also
 checks the single-send receipt and expired-retry guards without live messages.
 
+
+## Explicit user mentions (5 November 2026)
+
+`send_text` and owner queue text payloads accept optional `mentions`:
+`{"text":"{pan} อาร์ตแยกไฟล์ต้นทุนแล้วค่ะ","mentions":[{"key":"pan","user_id":"U..."}]}`.
+Resolve the recipient from the exact group's current records before enqueueing;
+never infer a LINE account from a nickname alone. With mentions supplied, text
+is a LINE textV2 template. Each key must occur exactly once as `{key}`; double
+braces represent literal braces. At most 20 distinct user targets are allowed.
+The bridge checks each user through that group's live member-profile endpoint
+and refuses sending if membership or returned identity cannot be verified.
+No all-members mentions are supported. Plain messages remain unchanged.
+Queue `accepted` still means API acceptance, never confirmed reading.

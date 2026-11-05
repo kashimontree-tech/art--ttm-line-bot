@@ -4,7 +4,7 @@ const {createOutbox}=require('./owner-outbox');
 const scope='group:C'+'a'.repeat(32),id='12345678-1234-1234-1234-123456789abc';
 function fixture(change={},options={}){
  const job={id,scope_id:scope,kind:'text',payload:{text:'พี่โจ พี่หัต ถึงบ้านกันหรือยังครับ'},authorized_by:'owner_explicit_chatgpt',authorization_note:'Explicit owner request',status:'pending',expires_at:new Date(Date.now()+60000).toISOString(),...change};
- let sends=0;const patches=[];
+ let sends=0;const patches=[],messages=[];
  const deps={supabaseRequest:async(path,o={})=>{
   if(o.method==='PATCH'){
    const data=JSON.parse(o.body);patches.push(data);
@@ -16,10 +16,11 @@ function fixture(change={},options={}){
   return job.status==='pending'?[{...job}]:[];
  },fetch:async(url,o)=>{
   if(url.endsWith('/summary'))return {ok:!options.preflightFailure,status:403,json:async()=>({groupId:scope.slice(6)})};
-  sends++;assert.equal(o.headers['X-Line-Retry-Key'],id);
+  if(url.includes('/member/'))return {ok:true,json:async()=>({userId:job.payload.mentions[0].user_id})};
+  messages.push(JSON.parse(o.body));sends++;assert.equal(o.headers['X-Line-Retry-Key'],id);
   return {ok:!options.sendFailure,status:options.sendFailure?429:200};
  }};
- return {job,patches,get sends(){return sends},outbox:createOutbox(deps,{LINE_CHANNEL_ACCESS_TOKEN:'test-token'})};
+ return {job,patches,messages,get sends(){return sends},outbox:createOutbox(deps,{LINE_CHANNEL_ACCESS_TOKEN:'test-token'})};
 }
 test('explicit text reaches only registered exact group; terminal receipt stops resend',async()=>{
  const f=fixture();await f.outbox.tick();await f.outbox.tick();assert.equal(f.sends,1);assert.equal(f.job.status,'accepted');assert.equal(f.job.result.delivery_confirmed,false);
@@ -39,4 +40,13 @@ test('accepted push with receipt failure stays sending, without second push',asy
 });
 test('concurrent worker calls cannot claim and send twice',async()=>{
  const f=fixture();await Promise.all([f.outbox.tick(),f.outbox.tick()]);assert.equal(f.sends,1);
+});
+
+test('queue forwards structured mention and records one accepted send',async()=>{
+ const user_id='U'+'b'.repeat(32);
+ const f=fixture({payload:{text:'{pan} เปิดไฟล์ด้วยค่ะ',mentions:[{key:'pan',user_id}]}});
+ await f.outbox.tick();await f.outbox.tick();
+ assert.equal(f.sends,1);assert.equal(f.job.status,'accepted');
+ assert.equal(f.messages[0].messages[0].type,'textV2');
+ assert.equal(f.messages[0].messages[0].substitution.pan.mentionee.userId,user_id);
 });
