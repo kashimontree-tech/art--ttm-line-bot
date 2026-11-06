@@ -169,7 +169,7 @@ function getAiJobs() {
   }
   return aiJobQueue;
 }
-app.get("/health", (req, res) => res.json({ok:true, release:"20261103-media-guard", version:assistantContext.VERSION, reasoningModel:assistantContext.reasoningOptions().model, features:["owner-outbox-v1","reasoning","attachment-followup","document-jobs","image-jobs","audio-transcription","public-web-search","narrated-still-video","video-analysis-v1","live-knowledge-updates","translation-v1"]}));
+app.get("/health", (req, res) => res.json({ok:true, release:"20261106-file-activity", version:assistantContext.VERSION, reasoningModel:assistantContext.reasoningOptions().model, features:["owner-outbox-v1","reasoning","attachment-followup","document-jobs","image-jobs","audio-transcription","public-web-search","narrated-still-video","video-analysis-v1","live-knowledge-updates","translation-v1"]}));
 
 app.get("/", (req, res) => {
   res.status(200).send("Art TTM LINE Bot is running");
