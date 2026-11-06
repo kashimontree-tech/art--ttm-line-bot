@@ -47,3 +47,14 @@ Code release `4d5ebb50e740373518dfaa507d6e4f6c903a44cc` was deployed and its pub
 `node --test release-notice.test.js` passed six internal mock tests, including media preservation/auditing, insufficient quota, inaccessible groups, public-release verification, duplicate suppression, and no automatic retry after a rejected send. These tests made no real OpenAI or LINE calls and do not certify model accuracy or end-to-end user commands.
 
 The owner-authorized release notice reads only explicitly queued recipients, verifies current group access and available quota, checks the public release before sending, and records LINE's acceptance separately from actual opening or capability validation. Claimed sends are not automatically replayed. A release notice is not a successful test of every advertised command. Existing capability boundaries above still apply.
+
+
+## 6 November 2026 evidence update
+
+The deployed Git commit `69553a49f1087f3b18f841fd6edc1f329dcda1f5` added the owner-scoped ChatGPT↔LINE file bridge, verified-user mentions, and explicit file-link activity buttons. Bridge and file-activity test modules use mocked storage/database/LINE adapters; their existence is internal-test coverage, not a live member result. The 6 November health label was updated to `20261106-file-activity` so the public release marker no longer names the older media-guard release.
+
+Live database evidence is tracked separately from tests: one opt-in bridge image smoke request and multiple owner-authorized text/file requests have LINE API acceptance records. Two signed member postbacks recorded a link request and a self-reported read acknowledgment. API acceptance does not prove recipient receipt or opening; a self-reported acknowledgment is not a LINE read receipt.
+
+Incoming LINE archival is active and real group files are being stored and analyzed, but it is not complete for every historical or current attachment. At the 6 November audit there were 35 historical analysis failures with no newly changed failure since the 2 November checkpoint, plus 168 pending receipts including 12 changed after that checkpoint. Pending records include stored files and videos; they must not be described as fully analyzed, and paid analysis must not be replayed automatically.
+
+The bridge does not automatically synchronize all ChatGPT Library files or LINE history. PDF/Excel delivery uses download links rather than native LINE file attachments. Explicit destination resolution, owner authorization, group scoping, byte verification and duplicate-send guards remain required.
