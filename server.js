@@ -468,7 +468,9 @@ async function processFileEvent(event, silent = false) {
     try{await markAttachment(event,"stored",fileName,stored.storagePath)}catch(e){console.error("Receipt audit update failed:",e)}
   } catch(error) {
     console.error("LINE file permanent archive/index failed:",error);
-    try{await markAttachment(event,"failed",fileName,stored?.storagePath  // Preserve unsupported files in the archive, but never send their bytes to
+    try{await markAttachment(event,"failed",fileName,stored?.storagePath,error.message)}catch(e){console.error("Receipt audit failed:",e)}
+  }
+  // Preserve unsupported files in the archive, but never send their bytes to
   // the paid document reader. This includes archives such as ZIP as well as
   // generic LINE file messages that actually contain audio/video.
   const unsupportedReason = unsupportedDocumentReason(fileName,mime);
