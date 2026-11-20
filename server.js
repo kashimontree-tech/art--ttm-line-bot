@@ -7,6 +7,7 @@ const translation = require("./translation");
 const documentTools = require("./document-tools");
 const generationTools = require("./generation-handlers");
 const knowledgeUpdates = require("./knowledge-updates");
+const { unsupportedDocumentReason } = require("./attachment-support");
 
 const app = express();
 app.get("/slip-admin.html", (req,res) => res.sendFile(require("path").join(__dirname,"slip-admin.html")));
@@ -467,14 +468,12 @@ async function processFileEvent(event, silent = false) {
     try{await markAttachment(event,"stored",fileName,stored.storagePath)}catch(e){console.error("Receipt audit update failed:",e)}
   } catch(error) {
     console.error("LINE file permanent archive/index failed:",error);
-    try{await markAttachment(event,"failed",fileName,stored?.storagePath,error.message)}catch(e){console.error("Receipt audit failed:",e)}
-  }
-  // LINE can deliver videos/audio as generic file messages. Never send those
-  // bytes through the document input_file path (which rejects these formats).
-  const mediaDocument = /^(?:video|audio)\//i.test(mime || "") ||
-    /\.(?:mp4|mov|m4v|webm|avi|mkv|mp3|m4a|wav|ogg|aac|flac)$/i.test(fileName);
-  if (mediaDocument) {
-    await markImageAnalysis(event,"failed","Audio/video sent as file is not supported by the document reader; no OpenAI request made.");
+    try{await markAttachment(event,"failed",fileName,stored?.storagePath  // Preserve unsupported files in the archive, but never send their bytes to
+  // the paid document reader. This includes archives such as ZIP as well as
+  // generic LINE file messages that actually contain audio/video.
+  const unsupportedReason = unsupportedDocumentReason(fileName,mime);
+  if (unsupportedReason) {
+    await markImageAnalysis(event,"failed",`${unsupportedReason}; no OpenAI request made.`);
   } else try {
     const uploaded = await uploadOpenAIFile(bytes,fileName,mime);
     const response = await fetch("https://api.openai.com/v1/responses", {
